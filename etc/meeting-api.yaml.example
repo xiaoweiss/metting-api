@@ -1,0 +1,55 @@
+Name: meeting-api
+Host: 0.0.0.0
+Port: 8888
+Timeout: 10000      # handler 整体超时 (ms)，测试类通道会调外部 API 轮询
+MaxConns: 10000
+
+DB:
+  DSN: "USER:PASSWORD@tcp(127.0.0.1:3306)/ding?charset=utf8mb4&parseTime=True&loc=Local"
+  MaxOpenConn: 100
+  MaxIdleConn: 20
+
+Redis:
+  Addr: "127.0.0.1:6379"
+  Password: ""
+  DB: 0
+
+JWT:
+  Secret: "REPLACE_WITH_STRONG_RANDOM_SECRET"
+  ExpireHour: 24
+
+DingTalk:
+  AppKey: "REPLACE_WITH_DINGTALK_APP_KEY"
+  AppSecret: "REPLACE_WITH_DINGTALK_APP_SECRET"
+  AgentId: 0
+  CorpId: ""
+  Sheet:
+    BaseId: "REPLACE_WITH_BASE_ID"
+    OperatorId: "REPLACE_WITH_OPERATOR_UNION_ID"
+    Sheets:
+      Hotels: "Ca5Pz1k"            # 酒店基础信息表（竞对关联）
+      Venues: "4zrnGvw"            # 酒店会议室信息表
+      DailyData: "smfseyx"         # Daily Data Input
+      DailyDataRevenue: "2GiUIZq"  # Daily Data Input (Revenue)
+      CityEvents: "Cn6Evow"        # City Event
+      HotelFacilities: "hAi1ytw"   # 酒店设施表（完整版）
+      HotelEvents: "zJSnWZm"       # Hotel Event
+      Summary: "QDf9rWh"           # 会议室类型出租率汇总表（仅用于"酒店对接人员"）
+    DefaultCity: "苏州"
+
+Sync:
+  CronExpr: "0 6 * * *"
+  AutoStart: true
+
+UpdateCheck:
+  CronExpr: "0 20 * * *"   # 每天 20:00 检测当日未录入酒店
+  AutoStart: true
+
+Mail:
+  Host: "smtp.qiye.aliyun.com"
+  Port: 465
+  Username: ""
+  Password: ""
+  FromName: "会议室运营平台"
+
+FrontendURL: "http://localhost:5173"

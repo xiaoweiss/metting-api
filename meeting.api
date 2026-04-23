@@ -1,0 +1,382 @@
+syntax = "v1"
+
+info (
+	title:   "会议室运营平台 API"
+	desc:    "Dashboard + 邮件通知 + 管理后台"
+	author:  "meeting-room"
+	version: "v1"
+)
+
+// ========== 公共类型 ==========
+type (
+	// 通用响应
+	BaseResp {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+)
+
+// ========== Auth ==========
+type (
+	DingTalkLoginReq {
+		Code string `json:"code"`
+	}
+	DingTalkLoginResp {
+		Token    string  `json:"token"`
+		Name     string  `json:"name"`
+		Status   string  `json:"status"`
+		HotelIds []int64 `json:"hotelIds"`
+	}
+	UserInfoResp {
+		Id       int64   `json:"id"`
+		Name     string  `json:"name"`
+		Email    string  `json:"email"`
+		Status   string  `json:"status"`
+		HotelIds []int64 `json:"hotelIds"`
+		IsAdmin  bool    `json:"isAdmin"`
+	}
+)
+
+// ========== Dashboard ==========
+type (
+	OccupancyReq {
+		HotelId   int64  `form:"hotelId"`
+		Year      int    `form:"year"`
+		Month     int    `form:"month"`
+		VenueType string `form:"venueType,optional"` // all 或具体场地类型
+	}
+	PeriodData {
+		M float64 `json:"m"` // 上午
+		A float64 `json:"a"` // 下午
+		E float64 `json:"e"` // 晚上
+	}
+	DailyOccupancy {
+		Date           string     `json:"date"` // YYYY-MM-DD
+		Hotel          PeriodData `json:"hotel"`
+		CompetitorAvg  PeriodData `json:"competitorAvg"`
+		MarketAvg      PeriodData `json:"marketAvg"`
+		CityEventCount int        `json:"cityEventCount"`
+	}
+	OccupancyResp {
+		List []DailyOccupancy `json:"list"`
+	}
+	ActivityReq {
+		HotelId   int64  `form:"hotelId"`
+		Year      int    `form:"year"`
+		Month     int    `form:"month"`
+		VenueType string `form:"venueType,optional"`
+	}
+	DailyActivity {
+		Date            string     `json:"date"`
+		Hotel           PeriodData `json:"hotel"`
+		CompetitorTotal PeriodData `json:"competitorTotal"` // 竞对用总值
+		MarketTotal     PeriodData `json:"marketTotal"` // 商圈用总值
+		CityEventCount  int        `json:"cityEventCount"`
+	}
+	ActivityResp {
+		List []DailyActivity `json:"list"`
+	}
+	CityEventReq {
+		Date string `form:"date"` // YYYY-MM-DD
+		City string `form:"city"`
+	}
+	CityEventItem {
+		VenueName string `json:"venueName"`
+		EventName string `json:"eventName"`
+		EventType string `json:"eventType"`
+	}
+	CityEventResp {
+		List []CityEventItem `json:"list"`
+	}
+	CompetitorDetailReq {
+		Date    string `form:"date"`
+		GroupId int64  `form:"groupId"`
+	}
+	CompetitorHotelDetail {
+		HotelName    string               `json:"hotelName"`
+		ActivityType string               `json:"activityType"`
+		Count        int                  `json:"count"`
+		Activities   []CompetitorActivity `json:"activities"`
+	}
+	CompetitorActivity {
+		VenueName     string `json:"venueName"`
+		Period        string `json:"period"`
+		Date          string `json:"date"`
+		EventName     string `json:"eventName"`
+		EventType     string `json:"eventType"`
+		BookingStatus string `json:"bookingStatus"`
+	}
+	CompetitorDetailResp {
+		List []CompetitorHotelDetail `json:"list"`
+	}
+	HotelDetailReq {
+		Date      string `form:"date"`
+		HotelId   int64  `form:"hotelId"`
+		VenueType string `form:"venueType,optional"`
+	}
+	HotelDetailItem {
+		VenueName    string `json:"venueName"`
+		Period       string `json:"period"` // AM/PM/EV
+		ActivityType string `json:"activityType"`
+		IsBooked     bool   `json:"isBooked"`
+	}
+	HotelDetailResp {
+		List []HotelDetailItem `json:"list"`
+	}
+)
+
+// ========== 色块阈值配置 ==========
+type (
+	ThresholdReq {
+		HotelId int64 `form:"hotelId,optional"`
+	}
+	ThresholdItem {
+		MetricType string  `json:"metricType"` // occupancy / activity
+		Level      string  `json:"level"` // low / medium / high
+		MinValue   float64 `json:"minValue"`
+		MaxValue   float64 `json:"maxValue"`
+		Color      string  `json:"color"` // 十六进制色号
+	}
+	ThresholdResp {
+		List []ThresholdItem `json:"list"`
+	}
+	SaveThresholdReq {
+		HotelId int64           `json:"hotelId,optional"`
+		List    []ThresholdItem `json:"list"`
+	}
+)
+
+// ========== 邮件组 ==========
+type (
+	EmailGroupItem {
+		Id          int64  `json:"id"`
+		Name        string `json:"name"`
+		HotelId     int64  `json:"hotelId"`
+		HotelName   string `json:"hotelName"`
+		Scene       string `json:"scene"`
+		MemberCount int    `json:"memberCount"`
+	}
+	EmailGroupListResp {
+		List []EmailGroupItem `json:"list"`
+	}
+	EmailGroupMember {
+		UserId int64  `json:"userId"`
+		Name   string `json:"name"`
+		Email  string `json:"email"`
+	}
+	CreateEmailGroupReq {
+		Name    string             `json:"name"`
+		HotelId int64              `json:"hotelId"`
+		Scene   string             `json:"scene,optional"`
+		Members []EmailGroupMember `json:"members"`
+	}
+	UpdateEmailGroupReq {
+		Id      int64              `path:"id"`
+		Name    string             `json:"name"`
+		HotelId int64              `json:"hotelId"`
+		Scene   string             `json:"scene,optional"`
+		Members []EmailGroupMember `json:"members"`
+	}
+	EmailGroupIdReq {
+		Id int64 `path:"id"`
+	}
+	EmailGroupMemberListResp {
+		List []EmailGroupMember `json:"list"`
+	}
+)
+
+// ========== 邮件调度 ==========
+type (
+	EmailScheduleItem {
+		Id       int64  `json:"id"`
+		GroupId  int64  `json:"groupId"`
+		CronExpr string `json:"cronExpr"`
+		Enabled  bool   `json:"enabled"`
+	}
+	CreateScheduleReq {
+		GroupId  int64  `json:"groupId"`
+		CronExpr string `json:"cronExpr"`
+		Enabled  bool   `json:"enabled"`
+	}
+	UpdateScheduleReq {
+		Id       int64  `path:"id"`
+		CronExpr string `json:"cronExpr"`
+		Enabled  bool   `json:"enabled"`
+	}
+	ScheduleIdReq {
+		Id int64 `path:"id"`
+	}
+)
+
+// ========== 邮件日志 ==========
+type (
+	EmailLogListReq {
+		Page     int `form:"page,optional,default=1"`
+		PageSize int `form:"pageSize,optional,default=20"`
+	}
+	EmailLogItem {
+		Id         int64  `json:"id"`
+		ScheduleId int64  `json:"scheduleId"`
+		Status     string `json:"status"`
+		Total      int    `json:"total"`
+		FailCount  int    `json:"failCount"`
+		RetryCount int    `json:"retryCount"`
+		SentAt     string `json:"sentAt"`
+	}
+	EmailLogListResp {
+		List  []EmailLogItem `json:"list"`
+		Total int64          `json:"total"`
+	}
+	EmailLogIdReq {
+		Id int64 `path:"id"`
+	}
+	FailListResp {
+		List []string `json:"list"` // 失败邮件地址
+	}
+)
+
+// ========== 管理后台 ==========
+type (
+	AdminUserItem {
+		Id       int64   `json:"id"`
+		Name     string  `json:"name"`
+		Email    string  `json:"email"`
+		Status   string  `json:"status"`
+		HotelIds []int64 `json:"hotelIds"`
+	}
+	AdminUserListResp {
+		List []AdminUserItem `json:"list"`
+	}
+	UpdateUserStatusReq {
+		Id     int64  `path:"id"`
+		Status string `json:"status"` // active / disabled
+	}
+	UpdateUserHotelsReq {
+		Id       int64   `path:"id"`
+		HotelIds []int64 `json:"hotelIds"`
+	}
+	HotelItem {
+		Id           int64  `json:"id"`
+		Name         string `json:"name"`
+		City         string `json:"city"`
+		MarketAreaId int64  `json:"marketAreaId"`
+	}
+	HotelListResp {
+		List []HotelItem `json:"list"`
+	}
+	CreateHotelReq {
+		Name         string `json:"name"`
+		City         string `json:"city"`
+		MarketAreaId int64  `json:"marketAreaId"`
+	}
+	AdminUserIdReq {
+		Id int64 `path:"id"`
+	}
+	AdminThresholdReq {
+		HotelId int64 `path:"hotelId"`
+	}
+)
+
+// ========== 路由定义 ==========
+// 无需鉴权的接口
+@server (
+	group: auth
+)
+service meeting-api {
+	@handler DingTalkLogin
+	post /api/auth/dingtalk-login (DingTalkLoginReq) returns (DingTalkLoginResp)
+}
+
+// 需要 JWT 鉴权的 Dashboard 接口
+@server (
+	group:      dashboard
+	middleware: Auth
+)
+service meeting-api {
+	@handler GetMe
+	get /api/auth/me returns (UserInfoResp)
+
+	@handler GetOccupancy
+	get /api/dashboard/occupancy (OccupancyReq) returns (OccupancyResp)
+
+	@handler GetActivity
+	get /api/dashboard/activity (ActivityReq) returns (ActivityResp)
+
+	@handler GetCityEvents
+	get /api/dashboard/city-events (CityEventReq) returns (CityEventResp)
+
+	@handler GetCompetitorDetail
+	get /api/dashboard/competitor-detail (CompetitorDetailReq) returns (CompetitorDetailResp)
+
+	@handler GetHotelDetail
+	get /api/dashboard/hotel-detail (HotelDetailReq) returns (HotelDetailResp)
+
+	@handler GetThresholds
+	get /api/config/thresholds (ThresholdReq) returns (ThresholdResp)
+}
+
+// 邮件管理接口（需要鉴权）
+@server (
+	group:      email
+	middleware: Auth
+)
+service meeting-api {
+	@handler ListEmailGroups
+	get /api/email/groups returns (EmailGroupListResp)
+
+	@handler CreateEmailGroup
+	post /api/email/groups (CreateEmailGroupReq) returns (BaseResp)
+
+	@handler UpdateEmailGroup
+	put /api/email/groups/:id (UpdateEmailGroupReq) returns (BaseResp)
+
+	@handler DeleteEmailGroup
+	delete /api/email/groups/:id (EmailGroupIdReq) returns (BaseResp)
+
+	@handler ListEmailGroupMembers
+	get /api/email/groups/:id/members (EmailGroupIdReq) returns (EmailGroupMemberListResp)
+
+	@handler CreateSchedule
+	post /api/email/schedules (CreateScheduleReq) returns (BaseResp)
+
+	@handler UpdateSchedule
+	put /api/email/schedules/:id (UpdateScheduleReq) returns (BaseResp)
+
+	@handler ListEmailLogs
+	get /api/email/logs (EmailLogListReq) returns (EmailLogListResp)
+
+	@handler GetFailList
+	get /api/email/logs/:id/fail-list (EmailLogIdReq) returns (FailListResp)
+
+	@handler RetryEmailLog
+	post /api/email/logs/:id/retry (EmailLogIdReq) returns (BaseResp)
+}
+
+// 管理后台接口（需要鉴权 + 管理员权限）
+@server (
+	group:      admin
+	middleware: Auth,AdminOnly
+)
+service meeting-api {
+	@handler ListAdminUsers
+	get /api/admin/users returns (AdminUserListResp)
+
+	@handler UpdateUserStatus
+	put /api/admin/users/:id/status (UpdateUserStatusReq) returns (BaseResp)
+
+	@handler UpdateUserHotels
+	put /api/admin/users/:id/hotels (UpdateUserHotelsReq) returns (BaseResp)
+
+	@handler ListHotels
+	get /api/admin/hotels returns (HotelListResp)
+
+	@handler CreateHotel
+	post /api/admin/hotels (CreateHotelReq) returns (BaseResp)
+
+	@handler GetAdminThresholds
+	get /api/admin/thresholds/:hotelId (AdminThresholdReq) returns (ThresholdResp)
+
+	@handler SaveAdminThresholds
+	put /api/admin/thresholds/:hotelId (SaveThresholdReq) returns (BaseResp)
+}
+
