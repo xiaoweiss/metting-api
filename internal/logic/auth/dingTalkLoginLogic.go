@@ -46,12 +46,12 @@ func (l *DingTalkLoginLogic) DingTalkLogin(req *types.DingTalkLoginReq) (resp *t
 	var user model.User
 	result := l.svcCtx.DB.Where("dingtalk_union_id = ?", userInfo.UnionId).First(&user)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		// 首次登录，自动注册（status=pending，等待管理员分配权限）
+		// 首次登录，自动注册并激活（管理员可在后台手动停用）
 		user = model.User{
 			DingTalkUnionId: userInfo.UnionId,
 			Name:            userInfo.Name,
 			Email:           userInfo.Email,
-			Status:          "pending",
+			Status:          "active",
 			IsAdmin:         false,
 		}
 		if err := l.svcCtx.DB.Create(&user).Error; err != nil {

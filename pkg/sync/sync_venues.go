@@ -25,6 +25,10 @@ func (e *Engine) syncVenues(ctx context.Context, recordIdToHotelId map[string]in
 		if venueName == "" {
 			continue
 		}
+		if rec.RecordId == "" {
+			logx.Infof("[syncVenues] %s 没有 recordId，跳过", venueName)
+			continue
+		}
 
 		venueType := singleSelectName(row, "会议室类型 （Meeting Room Category)")
 
@@ -49,14 +53,17 @@ func (e *Engine) syncVenues(ctx context.Context, recordIdToHotelId map[string]in
 			continue
 		}
 
-		// upsert: 按 hotel_id + name 唯一
+		// upsert: 用钉钉 recordId 当唯一键
+		// 这样同名不同 type 会落到独立行，type 也不会被后续行覆盖。
 		var venue model.Venue
-		e.db.Where("hotel_id = ? AND name = ?", hotelId, venueName).
-			Attrs(model.Venue{HotelId: hotelId, Name: venueName}).
+		e.db.Where("dingtalk_record_id = ?", rec.RecordId).
+			Attrs(model.Venue{DingtalkRecordId: rec.RecordId}).
 			FirstOrCreate(&venue)
 
-		// 更新类型和时段
+		// 全量更新元数据（hotel / name / type 都可能在钉钉里被改过）
 		e.db.Model(&venue).Updates(map[string]interface{}{
+			"hotel_id":          hotelId,
+			"name":              venueName,
 			"type":              venueType,
 			"available_periods": availablePeriods,
 		})

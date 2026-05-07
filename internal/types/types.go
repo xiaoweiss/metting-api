@@ -247,7 +247,15 @@ type OccupancyReq struct {
 }
 
 type OccupancyResp struct {
-	List []DailyOccupancy `json:"list"`
+	List    []DailyOccupancy `json:"list"`
+	Summary OccupancySummary `json:"summary"`
+}
+
+// OccupancySummary 月度汇总（按 venue 加权：∑booked / ∑total）
+type OccupancySummary struct {
+	HotelRate      float64 `json:"hotelRate"`      // 本酒店月度出租率 0-100
+	CompetitorRate float64 `json:"competitorRate"` // 竞对群月度出租率 0-100
+	MarketRate     float64 `json:"marketRate"`     // 商圈月度出租率 0-100
 }
 
 type PeriodData struct {
@@ -305,6 +313,7 @@ type UpdateUserStatusReq struct {
 type UserHotelItem struct {
 	Id   int64  `json:"id"`
 	Name string `json:"name"`
+	City string `json:"city"`
 }
 
 type UserInfoResp struct {

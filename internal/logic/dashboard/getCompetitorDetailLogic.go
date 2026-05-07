@@ -30,32 +30,29 @@ func (l *GetCompetitorDetailLogic) GetCompetitorDetail(req *types.CompetitorDeta
 		groupId = cg.Id
 	}
 
-	// 数据源：hotel_events 表（从 Hotel Event AI 表同步来）
-	// 比 meeting_records 富：有 event_name / event_type / booking_status
+	// 数据源：meeting_records（Daily Data Input 同步来）
+	// 字段较少（无 event_name / booking_status），但是日报数据完整
 	var rows []struct {
-		HotelName     string
-		EventName     string
-		EventType     string
-		BookingStatus string
-		VenueName     string
-		Period        string
-		RecordDate    string
+		HotelName    string
+		ActivityType string
+		VenueName    string
+		Period       string
+		RecordDate   string
 	}
 
 	l.svcCtx.DB.Raw(`
 		SELECT h.name AS hotel_name,
-		       COALESCE(he.event_name, '') AS event_name,
-		       COALESCE(he.event_type, '') AS event_type,
-		       COALESCE(he.booking_status, '') AS booking_status,
-		       COALESCE(v.name, '') AS venue_name,
-		       COALESCE(he.period, '') AS period,
-		       DATE_FORMAT(he.event_date,'%Y-%m-%d') AS record_date
-		FROM hotel_events he
-		JOIN hotels h ON h.id = he.hotel_id
-		LEFT JOIN venues v ON v.id = he.venue_id
-		JOIN competitor_group_hotels cgh ON cgh.hotel_id = he.hotel_id AND cgh.group_id = ?
-		WHERE DATE_FORMAT(he.event_date,'%Y-%m-%d') = ?
-		ORDER BY h.name, he.event_type, he.event_date`,
+		       COALESCE(mr.activity_type, '') AS activity_type,
+		       v.name AS venue_name,
+		       mr.period,
+		       DATE_FORMAT(mr.record_date,'%Y-%m-%d') AS record_date
+		FROM meeting_records mr
+		JOIN hotels h ON h.id = mr.hotel_id
+		JOIN venues v ON v.id = mr.venue_id
+		JOIN competitor_group_hotels cgh ON cgh.hotel_id = mr.hotel_id AND cgh.group_id = ?
+		WHERE mr.is_booked = 1
+		  AND DATE_FORMAT(mr.record_date,'%Y-%m-%d') = ?
+		ORDER BY h.name, mr.activity_type, mr.period`,
 		groupId, req.Date,
 	).Scan(&rows)
 
@@ -68,11 +65,11 @@ func (l *GetCompetitorDetailLogic) GetCompetitorDetail(req *types.CompetitorDeta
 	var order []groupKey
 
 	for _, r := range rows {
-		k := groupKey{r.HotelName, r.EventType}
+		k := groupKey{r.HotelName, r.ActivityType}
 		if _, exists := grouped[k]; !exists {
 			grouped[k] = &types.CompetitorHotelDetail{
 				HotelName:    r.HotelName,
-				ActivityType: r.EventType,
+				ActivityType: r.ActivityType,
 			}
 			order = append(order, k)
 		}
@@ -82,9 +79,9 @@ func (l *GetCompetitorDetailLogic) GetCompetitorDetail(req *types.CompetitorDeta
 			VenueName:     r.VenueName,
 			Period:        r.Period,
 			Date:          r.RecordDate,
-			EventName:     r.EventName,
-			EventType:     r.EventType,
-			BookingStatus: r.BookingStatus,
+			EventName:     "",
+			EventType:     r.ActivityType,
+			BookingStatus: "已出租",
 		})
 	}
 

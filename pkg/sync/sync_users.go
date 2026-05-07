@@ -9,12 +9,13 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// syncUserPerms 从汇总表同步酒店对接人员 → users + user_hotel_perms
+// syncUserPerms 从酒店基础信息表同步酒店对接人员 → users + user_hotel_perms
+// （历史上曾从「会议室类型出租率汇总表」读，业务方确认对接人员维护点是「酒店基础信息表」）
 func (e *Engine) syncUserPerms(ctx context.Context) error {
-	sheetId := e.cfg.DingTalk.Sheet.Sheets.Summary
+	sheetId := e.cfg.DingTalk.Sheet.Sheets.Hotels
 	rows, err := e.sheet.WithWorksheet(sheetId).GetAllRows()
 	if err != nil {
-		return fmt.Errorf("读取汇总表失败: %w", err)
+		return fmt.Errorf("读取酒店基础信息表失败: %w", err)
 	}
 
 	// 酒店名 → id

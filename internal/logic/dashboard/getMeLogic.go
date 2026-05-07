@@ -61,7 +61,7 @@ func GetMeByUserId(ctx context.Context, svcCtx *svc.ServiceContext, userIdStr st
 
 	var hotels []types.UserHotelItem
 	if len(hotelIds) > 0 {
-		svcCtx.DB.Raw("SELECT id, name FROM hotels WHERE id IN ?", hotelIds).Scan(&hotels)
+		svcCtx.DB.Raw("SELECT id, name, COALESCE(city,'') AS city FROM hotels WHERE id IN ?", hotelIds).Scan(&hotels)
 	}
 
 	resp := &types.UserInfoResp{

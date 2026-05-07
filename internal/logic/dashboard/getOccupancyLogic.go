@@ -42,13 +42,46 @@ func (l *GetOccupancyLogic) GetOccupancy(req *types.OccupancyReq) (resp *types.O
 		venueType = "all"
 	}
 
-	// 查本酒店每日每时段出租率
+	// 关键：分母应该是「该范围内符合 venue type 的 venue 总数」，
+	// 而不是 meeting_records 的 COUNT(*)。
+	// 业务在钉钉表里只录已预订的场次，未预订的不录，
+	// 用 COUNT(*) 当分母会让出租率永远 100%。
+
+	// 本酒店该 venue type 的 venue 数
+	var hotelTotalVenues int
+	l.svcCtx.DB.Raw(`
+		SELECT COUNT(*) FROM venues
+		WHERE hotel_id = ? AND (? = 'all' OR type = ?)`,
+		req.HotelId, venueType, venueType,
+	).Scan(&hotelTotalVenues)
+
+	// 竞对群所有酒店的 venue 数
+	var compTotalVenues int
+	l.svcCtx.DB.Raw(`
+		SELECT COUNT(*) FROM venues v
+		JOIN competitor_group_hotels cgh ON cgh.hotel_id = v.hotel_id
+		JOIN competitor_groups cg ON cg.id = cgh.group_id AND cg.base_hotel_id = ?
+		WHERE (? = 'all' OR v.type = ?)`,
+		req.HotelId, venueType, venueType,
+	).Scan(&compTotalVenues)
+
+	// 同商圈所有酒店的 venue 数
+	var marketTotalVenues int
+	l.svcCtx.DB.Raw(`
+		SELECT COUNT(*) FROM venues v
+		JOIN hotels h ON h.id = v.hotel_id
+		WHERE h.market_area_id = (SELECT market_area_id FROM hotels WHERE id = ?)
+		  AND (? = 'all' OR v.type = ?)`,
+		req.HotelId, venueType, venueType,
+	).Scan(&marketTotalVenues)
+
+	// 查本酒店每日每时段已预订数（total 用 venue 数填充）
 	var hotelRows []periodRow
 	query := l.svcCtx.DB.Raw(`
 		SELECT DATE_FORMAT(mr.record_date,'%Y-%m-%d') AS record_date,
 		       mr.period,
 		       SUM(mr.is_booked) AS booked,
-		       COUNT(*) AS total
+		       ? AS total
 		FROM meeting_records mr
 		JOIN venues v ON v.id = mr.venue_id
 		WHERE mr.hotel_id = ?
@@ -57,19 +90,19 @@ func (l *GetOccupancyLogic) GetOccupancy(req *types.OccupancyReq) (resp *types.O
 		  AND (? = 'all' OR v.type = ?)
 		GROUP BY mr.record_date, mr.period
 		ORDER BY mr.record_date, FIELD(mr.period,'AM','PM','EV')`,
-		req.HotelId, req.Year, req.Month, venueType, venueType,
+		hotelTotalVenues, req.HotelId, req.Year, req.Month, venueType, venueType,
 	).Scan(&hotelRows)
 	if query.Error != nil {
 		return nil, query.Error
 	}
 
-	// 查竞对群出租率（平均值）：找到本酒店所在的竞对群
+	// 竞对群每日每时段
 	var competitorRows []periodRow
 	l.svcCtx.DB.Raw(`
 		SELECT DATE_FORMAT(mr.record_date,'%Y-%m-%d') AS record_date,
 		       mr.period,
 		       SUM(mr.is_booked) AS booked,
-		       COUNT(*) AS total
+		       ? AS total
 		FROM meeting_records mr
 		JOIN venues v ON v.id = mr.venue_id
 		JOIN competitor_group_hotels cgh ON cgh.hotel_id = mr.hotel_id
@@ -78,16 +111,16 @@ func (l *GetOccupancyLogic) GetOccupancy(req *types.OccupancyReq) (resp *types.O
 		  AND MONTH(mr.record_date) = ?
 		  AND (? = 'all' OR v.type = ?)
 		GROUP BY mr.record_date, mr.period`,
-		req.HotelId, req.Year, req.Month, venueType, venueType,
+		compTotalVenues, req.HotelId, req.Year, req.Month, venueType, venueType,
 	).Scan(&competitorRows)
 
-	// 查商圈出租率（平均值）：找本酒店所在商圈的所有酒店
+	// 商圈每日每时段
 	var marketRows []periodRow
 	l.svcCtx.DB.Raw(`
 		SELECT DATE_FORMAT(mr.record_date,'%Y-%m-%d') AS record_date,
 		       mr.period,
 		       SUM(mr.is_booked) AS booked,
-		       COUNT(*) AS total
+		       ? AS total
 		FROM meeting_records mr
 		JOIN venues v ON v.id = mr.venue_id
 		JOIN hotels h ON h.id = mr.hotel_id
@@ -96,7 +129,7 @@ func (l *GetOccupancyLogic) GetOccupancy(req *types.OccupancyReq) (resp *types.O
 		  AND MONTH(mr.record_date) = ?
 		  AND (? = 'all' OR v.type = ?)
 		GROUP BY mr.record_date, mr.period`,
-		req.HotelId, req.Year, req.Month, venueType, venueType,
+		marketTotalVenues, req.HotelId, req.Year, req.Month, venueType, venueType,
 	).Scan(&marketRows)
 
 	// 查城市活动数量（按日期）
@@ -116,6 +149,14 @@ func (l *GetOccupancyLogic) GetOccupancy(req *types.OccupancyReq) (resp *types.O
 
 	// 组装结果：按日期分组
 	resp.List = buildOccupancyList(hotelRows, competitorRows, marketRows, cityEventCounts)
+
+	// 月度汇总：按 venue 加权（∑booked / ∑total），仅统计已录入的日期/时段
+	// 不让 5 月底未录入的日子拉低月均
+	resp.Summary = types.OccupancySummary{
+		HotelRate:      sumRate(hotelRows),
+		CompetitorRate: sumRate(competitorRows),
+		MarketRate:     sumRate(marketRows),
+	}
 
 	cache.Set(l.ctx, l.svcCtx.Redis, cacheKey, resp)
 	return resp, nil
@@ -174,6 +215,19 @@ func toMap(rows []periodRow) map[string]map[string]periodRow {
 		m[r.RecordDate][r.Period] = r
 	}
 	return m
+}
+
+// sumRate 按 venue 加权计算所有行的合并出租率：∑booked / ∑total × 100
+func sumRate(rows []periodRow) float64 {
+	var booked, total int
+	for _, r := range rows {
+		booked += r.Booked
+		total += r.Total
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(booked) / float64(total) * 100
 }
 
 func rate(r periodRow) float64 {

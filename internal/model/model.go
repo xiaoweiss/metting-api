@@ -61,9 +61,10 @@ type Venue struct {
 	Name             string  `gorm:"size:128;not null"`
 	Type             string  `gorm:"size:64"`
 	AvailablePeriods string  `gorm:"size:64"`
-	AreaSqm          float64 `gorm:"column:area_sqm;type:decimal(10,2)"` // 面积
-	TheaterCapacity  int     `gorm:"column:theater_capacity"`             // 剧院式
-	HasPillar        *bool   `gorm:"column:has_pillar"`                   // 是否有柱
+	AreaSqm          float64 `gorm:"column:area_sqm;type:decimal(10,2)"`            // 面积
+	TheaterCapacity  int     `gorm:"column:theater_capacity"`                       // 剧院式
+	HasPillar        *bool   `gorm:"column:has_pillar"`                             // 是否有柱
+	DingtalkRecordId string  `gorm:"column:dingtalk_record_id;size:32;uniqueIndex"` // 钉钉行 id；同名不同 type 靠这个区分
 }
 
 func (Venue) TableName() string { return "venues" }

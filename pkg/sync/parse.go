@@ -68,6 +68,32 @@ func multipleSelectNames(row dingtalk.SheetRow, key string) []string {
 	return names
 }
 
+// linkedRecordId 提取单值关联字段的 recordId
+// 兼容两种 API 格式：
+//   - {"id": "xxx", "name": "yyy"}                  (Daily Data 里 Room Name / Hotel Name)
+//   - {"linkedRecordIds": ["xxx"], "name": "yyy"}   (酒店会议室信息表里「选择酒店」)
+func linkedRecordId(row dingtalk.SheetRow, key string) string {
+	v, ok := row[key]
+	if !ok || v == nil {
+		return ""
+	}
+	m, ok := v.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	if id, ok := m["id"].(string); ok && id != "" {
+		return id
+	}
+	if ids, ok := m["linkedRecordIds"].([]interface{}); ok {
+		for _, x := range ids {
+			if s, ok := x.(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
 // linkedRecordIds 提取关联字段的 recordId 列表
 // API 格式: {"linkedRecordIds": ["abc", "def"]}
 func linkedRecordIds(row dingtalk.SheetRow, key string) []string {
