@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"meeting/internal/config"
 	"meeting/internal/middleware"
+	"meeting/pkg/blast"
 	"meeting/pkg/check"
 	"meeting/pkg/dingtalk"
 	pkgsync "meeting/pkg/sync"
@@ -26,6 +27,8 @@ type ServiceContext struct {
 	SyncScheduler  *pkgsync.Scheduler
 	CheckEngine    *check.Engine
 	CheckScheduler *check.Scheduler
+	BlastEngine    *blast.Engine
+	BlastScheduler *blast.Scheduler
 	DTClient       *dingtalk.Client
 }
 
@@ -68,6 +71,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	checkEngine := check.NewEngine(db, c, dtClient)
 	checkScheduler := check.NewScheduler(checkEngine)
 
+	// 初始化全员邮件群发引擎 + 调度器
+	blastEngine := blast.NewEngine(db, c)
+	blastScheduler := blast.NewScheduler(blastEngine)
+
 	return &ServiceContext{
 		Config:         c,
 		DB:             db,
@@ -78,6 +85,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		SyncScheduler:  syncScheduler,
 		CheckEngine:    checkEngine,
 		CheckScheduler: checkScheduler,
+		BlastEngine:    blastEngine,
+		BlastScheduler: blastScheduler,
 		DTClient:       dtClient,
 	}
 }

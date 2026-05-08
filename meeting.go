@@ -65,6 +65,16 @@ func main() {
 		}
 	}
 
+	// 启动全员群发邮件调度器：只看 DB 配置（默认是 disabled）
+	{
+		var bs model.MailBlastSchedule
+		if err := ctx.DB.Where("lock_key = ?", "singleton").First(&bs).Error; err == nil && bs.Enabled && bs.TemplateId > 0 {
+			if err := ctx.BlastScheduler.Start(bs.CronExpr); err != nil {
+				logx.Errorf("[Blast] 启动调度器失败: %v", err)
+			}
+		}
+	}
+
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()
 }

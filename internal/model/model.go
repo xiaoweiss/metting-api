@@ -244,6 +244,19 @@ type UpdateCheckSchedule struct {
 
 func (UpdateCheckSchedule) TableName() string { return "update_check_schedules" }
 
+// MailBlastSchedule 全员群发邮件的 cron + 模板配置（单行表）
+type MailBlastSchedule struct {
+	Id         int64      `gorm:"primaryKey;autoIncrement"`
+	LockKey    string     `gorm:"column:lock_key;size:32;uniqueIndex;default:singleton"`
+	CronExpr   string     `gorm:"column:cron_expr;size:64;not null"`
+	TemplateId int64      `gorm:"column:template_id;not null"`
+	Enabled    bool       `gorm:"default:false"`
+	LastRunAt  *time.Time `gorm:"column:last_run_at"`
+	UpdatedAt  time.Time
+}
+
+func (MailBlastSchedule) TableName() string { return "mail_blast_schedules" }
+
 // NotificationSetting 通知渠道配置（sms / dingtalk_robot / dingtalk_ding）
 type NotificationSetting struct {
 	Id        int64     `gorm:"primaryKey;autoIncrement"`
