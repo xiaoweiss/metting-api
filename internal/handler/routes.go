@@ -312,6 +312,16 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 				{
 					Method:  http.MethodGet,
+					Path:    "/api/email/logs/:id/recipients",
+					Handler: email.ListLogRecipientsHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/api/email/logs/:logId/recipients/:rid/retry",
+					Handler: email.RetryLogRecipientHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
 					Path:    "/api/email/schedules",
 					Handler: email.ListSchedulesHandler(serverCtx),
 				},

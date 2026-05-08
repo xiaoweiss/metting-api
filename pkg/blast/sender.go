@@ -74,29 +74,42 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 	emails = dedup(emails)
 
 	mailer := mail.NewSender(e.DB, e.Cfg)
+
+	// 单封结果（顺序与 emails 对齐）
+	type result struct {
+		Email string
+		Err   string
+	}
+	results := make([]result, len(emails))
+
 	var (
-		failMu  sync.Mutex
-		fails   []FailItem
 		okCount int64
 		sem     = make(chan struct{}, concurrency)
 		wg      sync.WaitGroup
 	)
-	for _, addr := range emails {
-		addr := addr
+	for i, addr := range emails {
+		i, addr := i, addr
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer func() { <-sem; wg.Done() }()
+			results[i].Email = addr
 			if err := mailer.Send([]string{addr}, subject, body); err != nil {
-				failMu.Lock()
-				fails = append(fails, FailItem{Email: addr, Error: err.Error()})
-				failMu.Unlock()
+				results[i].Err = err.Error()
 				return
 			}
 			atomic.AddInt64(&okCount, 1)
 		}()
 	}
 	wg.Wait()
+
+	// 汇总失败列表（兼容老 fail_list）+ 准备 recipients 行
+	var fails []FailItem
+	for _, r := range results {
+		if r.Err != "" {
+			fails = append(fails, FailItem{Email: r.Email, Error: r.Err})
+		}
+	}
 
 	status := "success"
 	if len(fails) > 0 {
@@ -121,6 +134,31 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 	}
 	if err := e.DB.Create(&logRow).Error; err != nil {
 		logx.Errorf("[%s] 写 email_logs 失败: %v", source, err)
+	}
+
+	// 把 N 个收件人各落一行 email_log_recipients
+	if logRow.Id > 0 {
+		recipients := make([]model.EmailLogRecipient, 0, len(results))
+		for _, r := range results {
+			st := "sent"
+			if r.Err != "" {
+				st = "failed"
+			}
+			recipients = append(recipients, model.EmailLogRecipient{
+				LogId:     logRow.Id,
+				Email:     r.Email,
+				Status:    st,
+				Error:     r.Err,
+				SentAt:    now,
+				CreatedAt: now,
+			})
+		}
+		if len(recipients) > 0 {
+			// gorm CreateInBatches 100 一批，避免一条 SQL 过长
+			if err := e.DB.CreateInBatches(recipients, 100).Error; err != nil {
+				logx.Errorf("[%s] 写 email_log_recipients 失败: %v", source, err)
+			}
+		}
 	}
 
 	logx.Infof("[%s] 群发完成：总 %d / 成功 %d / 失败 %d, status=%s",
@@ -214,6 +252,30 @@ func (e *Engine) RetryFailed(ctx context.Context, logId int64) (*model.EmailLog,
 		UpdateColumn("retry_count", gorm.Expr("retry_count + 1"))
 
 	return e.sendBatch(ctx, emails, src.TemplateId, src.ScheduleId, fmt.Sprintf("retry:%d", src.Id))
+}
+
+// RetryRecipient 只重发 email_log_recipients 表里某一行（单封）。
+// 走 sendBatch 落新一行 email_logs（total=1），原 recipient 行的 retry_count + 1。
+func (e *Engine) RetryRecipient(ctx context.Context, recipientId int64) (*model.EmailLog, error) {
+	var rec model.EmailLogRecipient
+	if err := e.DB.First(&rec, recipientId).Error; err != nil {
+		return nil, fmt.Errorf("收件人记录不存在: %w", err)
+	}
+	if rec.Email == "" {
+		return nil, errors.New("收件人邮箱为空")
+	}
+	var src model.EmailLog
+	if err := e.DB.First(&src, rec.LogId).Error; err != nil {
+		return nil, fmt.Errorf("母日志不存在: %w", err)
+	}
+	if src.TemplateId == 0 {
+		return nil, errors.New("该日志缺少 template_id（历史日志），无法重发")
+	}
+	// 原 recipient 计 retry+1
+	e.DB.Model(&model.EmailLogRecipient{}).
+		Where("id = ?", rec.Id).
+		UpdateColumn("retry_count", gorm.Expr("retry_count + 1"))
+	return e.sendBatch(ctx, []string{rec.Email}, src.TemplateId, src.ScheduleId, fmt.Sprintf("retry:%d", src.Id))
 }
 
 // RetryAllFailed 重发所有 status in (partial, failed) 的日志的失败明细。

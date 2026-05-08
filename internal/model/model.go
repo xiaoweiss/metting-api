@@ -184,11 +184,25 @@ type EmailLog struct {
 	Status     string    `gorm:"type:enum('success','partial','failed');not null"`
 	Total      int
 	FailCount  int
-	FailList   string    `gorm:"type:json"`
+	FailList   string    `gorm:"type:json"` // 兼容字段，仍保留方便查；权威数据看 email_log_recipients
 	RetryCount int
 	SentAt     time.Time
 	CreatedAt  time.Time `gorm:"index"`
 }
+
+// EmailLogRecipient 每封邮件一行，包含状态 + 错误原因 + 单独的 retry_count
+type EmailLogRecipient struct {
+	Id         int64     `gorm:"primaryKey;autoIncrement"`
+	LogId      int64     `gorm:"column:log_id;index"`
+	Email      string    `gorm:"size:128;not null"`
+	Status     string    `gorm:"type:enum('sent','failed');not null"`
+	Error      string    `gorm:"type:text"`
+	RetryCount int       `gorm:"column:retry_count;default:0"`
+	SentAt     time.Time `gorm:"column:sent_at"`
+	CreatedAt  time.Time
+}
+
+func (EmailLogRecipient) TableName() string { return "email_log_recipients" }
 
 func (EmailLog) TableName() string { return "email_logs" }
 
