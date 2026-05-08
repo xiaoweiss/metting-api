@@ -116,12 +116,14 @@ func (e *Engine) Notify(ctx context.Context, dateStr string, missing []HotelStat
 	// 收集收件人
 	phones := e.collectPhones(missing)
 	unionids := e.collectUnionIds(missing)
+	emails := e.collectEmails(missing)
 
 	msg := notify.Message{
 		Title:    "会议室数据未录入提醒",
 		Text:     text,
 		Markdown: md,
 		Phones:   phones,
+		Emails:   emails,
 		Unionids: unionids,
 	}
 
@@ -165,6 +167,8 @@ func (e *Engine) buildSender(ch notify.Channel) notify.Sender {
 		return &notify.AliyunSMSSender{DB: e.DB}
 	case notify.ChannelDingTalkDing:
 		return &notify.DingTalkDingSender{DB: e.DB, Cfg: e.Cfg, Client: e.Client}
+	case notify.ChannelEmail:
+		return &notify.EmailSender{DB: e.DB, Cfg: e.Cfg}
 	}
 	return nil
 }
@@ -185,6 +189,24 @@ func (e *Engine) collectPhones(missing []HotelStatus) []string {
 		WHERE p.hotel_id IN ? AND u.phone <> '' AND u.status = 'active'
 	`, ids).Scan(&phones)
 	return phones
+}
+
+func (e *Engine) collectEmails(missing []HotelStatus) []string {
+	if len(missing) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(missing))
+	for _, m := range missing {
+		ids = append(ids, m.HotelId)
+	}
+	var emails []string
+	e.DB.Raw(`
+		SELECT DISTINCT u.email
+		FROM users u
+		JOIN user_hotel_perms p ON p.user_id = u.id
+		WHERE p.hotel_id IN ? AND u.email <> '' AND u.status = 'active'
+	`, ids).Scan(&emails)
+	return emails
 }
 
 func (e *Engine) collectUnionIds(missing []HotelStatus) []string {

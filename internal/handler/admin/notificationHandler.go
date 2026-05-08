@@ -107,12 +107,14 @@ func UpdateNotificationSettingHandler(svcCtx *svc.ServiceContext) http.HandlerFu
 // 请求体可选：
 //
 //	{ "phone": "13800000000",  // 指定短信测试的手机号；SMS 渠道强烈建议传
+//	  "email": "x@y.com",       // 指定邮件渠道收件人；不传则取第一个有邮箱的 admin
 //	  "unionId": "xxx" }        // 指定钉钉工作通知收件人的 unionId；不传则取第一个 admin
 func TestNotificationHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Channel string `path:"channel"`
 			Phone   string `json:"phone,optional"`
+			Email   string `json:"email,optional"`
 			UnionId string `json:"unionId,optional"`
 		}
 		if err := httpx.Parse(r, &req); err != nil {
@@ -128,6 +130,8 @@ func TestNotificationHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			sender = &notify.AliyunSMSSender{DB: svcCtx.DB}
 		case notify.ChannelDingTalkDing:
 			sender = &notify.DingTalkDingSender{DB: svcCtx.DB, Cfg: svcCtx.Config, Client: svcCtx.DTClient}
+		case notify.ChannelEmail:
+			sender = &notify.EmailSender{DB: svcCtx.DB, Cfg: svcCtx.Config}
 		default:
 			http.Error(w, "未知渠道", http.StatusBadRequest)
 			return
@@ -148,6 +152,15 @@ func TestNotificationHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				var user model.User
 				if err := svcCtx.DB.Where("is_admin = 1 AND status = 'active' AND phone <> ''").First(&user).Error; err == nil {
 					msg.Phones = []string{user.Phone}
+				}
+			}
+		case notify.ChannelEmail:
+			if req.Email != "" {
+				msg.Emails = []string{req.Email}
+			} else {
+				var user model.User
+				if err := svcCtx.DB.Where("is_admin = 1 AND status = 'active' AND email <> ''").First(&user).Error; err == nil {
+					msg.Emails = []string{user.Email}
 				}
 			}
 		case notify.ChannelDingTalkDing:
