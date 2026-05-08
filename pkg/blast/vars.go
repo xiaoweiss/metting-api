@@ -13,11 +13,14 @@ import (
 
 // recipientVars 按 email 装配模板变量。所有动态字段都是字符串，没数据时填 "—"。
 //
+// hotelOverride > 0 时用它作为对标酒店（邮件组发送场景，按 group.hotel_id 覆盖）；
+// 否则按收件人 users.primary_hotel_id 取；都没有的话 fallback 到关联酒店里第一家有 venue 的。
+//
 // 模板里能用的变量：
 //   - {{.Date}}            报告日期 YYYY-MM-DD
 //   - {{.Time}}            发送时间 HH:MM
 //   - {{.UserName}}        收件人姓名
-//   - {{.HotelName}}       该收件人关联的主酒店名
+//   - {{.HotelName}}       对标酒店名
 //   - {{.OccupancyRate}}   该酒店当日综合出租率
 //   - {{.AM}}              上午出租率
 //   - {{.PM}}              下午出租率
@@ -27,7 +30,7 @@ import (
 //   - {{.MorningRate}}     同 AM（向后兼容）
 //   - {{.AfternoonRate}}   同 PM
 //   - {{.CompetitorRate}}  同 CompRate
-func recipientVars(db *gorm.DB, email string, when time.Time) map[string]interface{} {
+func recipientVars(db *gorm.DB, email string, when time.Time, hotelOverride int64) map[string]interface{} {
 	dateStr := when.Format("2006-01-02")
 	vars := map[string]interface{}{
 		"Date":           dateStr,
@@ -45,21 +48,52 @@ func recipientVars(db *gorm.DB, email string, when time.Time) map[string]interfa
 		"CompetitorRate": "—",
 	}
 
-	// 1) email → user
+	// 1) email → user（拿 UserName + primary_hotel_id）
 	var user model.User
 	if err := db.Where("email = ?", email).First(&user).Error; err != nil || user.Id == 0 {
+		// 不是系统用户：如果 hotelOverride 给了，仍然按它渲染酒店字段
+		if hotelOverride > 0 {
+			fillHotelVars(db, vars, hotelOverride, dateStr)
+		}
 		return vars
 	}
 	if user.Name != "" {
 		vars["UserName"] = user.Name
 	}
 
-	// 2) 主酒店：取该 user 关联的第一家
+	// 2) 决定对标酒店 id 的优先级：
+	//    a. hotelOverride（邮件组发送时 group.hotel_id 覆盖）
+	//    b. user.primary_hotel_id（"所属酒店"）
+	//    c. user_hotel_perms 里第一家有 venue 的（兜底）
+	//    d. user_hotel_perms 里 hotel_id 最小的（再兜底，至少能渲染 HotelName）
 	var hotelId int64
-	db.Raw("SELECT hotel_id FROM user_hotel_perms WHERE user_id = ? ORDER BY hotel_id LIMIT 1", user.Id).Scan(&hotelId)
+	switch {
+	case hotelOverride > 0:
+		hotelId = hotelOverride
+	case user.PrimaryHotelId != nil && *user.PrimaryHotelId > 0:
+		hotelId = *user.PrimaryHotelId
+	default:
+		db.Raw(`
+			SELECT p.hotel_id
+			FROM user_hotel_perms p
+			WHERE p.user_id = ?
+			  AND EXISTS (SELECT 1 FROM venues v WHERE v.hotel_id = p.hotel_id)
+			ORDER BY p.hotel_id LIMIT 1
+		`, user.Id).Scan(&hotelId)
+		if hotelId == 0 {
+			db.Raw("SELECT hotel_id FROM user_hotel_perms WHERE user_id = ? ORDER BY hotel_id LIMIT 1", user.Id).Scan(&hotelId)
+		}
+	}
 	if hotelId == 0 {
 		return vars
 	}
+	fillHotelVars(db, vars, hotelId, dateStr)
+	return vars
+}
+
+// fillHotelVars 给定 hotelId + 日期，把酒店相关变量填到 vars。
+// 拆出来是因为 hotelOverride 场景下哪怕没 user 也要走这个填充。
+func fillHotelVars(db *gorm.DB, vars map[string]interface{}, hotelId int64, dateStr string) {
 	var hotel model.Hotel
 	if err := db.First(&hotel, hotelId).Error; err == nil {
 		vars["HotelName"] = hotel.Name
@@ -69,7 +103,7 @@ func recipientVars(db *gorm.DB, email string, when time.Time) map[string]interfa
 	var hotelTotalVenues int
 	db.Raw("SELECT COUNT(*) FROM venues WHERE hotel_id = ?", hotelId).Scan(&hotelTotalVenues)
 	if hotelTotalVenues == 0 {
-		return vars
+		return
 	}
 
 	type periodSum struct {
@@ -142,8 +176,6 @@ func recipientVars(db *gorm.DB, email string, when time.Time) map[string]interfa
 		`, hotelId, dateStr).Scan(&marketBooked)
 		vars["MarketRate"] = pct(marketBooked, marketTotal*2)
 	}
-
-	return vars
 }
 
 // defaultUserName 在 users 表里查不到时，用邮箱 @ 前面的部分当姓名占位

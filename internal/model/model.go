@@ -3,17 +3,18 @@ package model
 import "time"
 
 type User struct {
-	Id               int64     `gorm:"primaryKey;autoIncrement"`
-	DingTalkUnionId  string    `gorm:"column:dingtalk_union_id;uniqueIndex;size:64;not null"`
-	Name             string    `gorm:"size:64"`
-	Email            string    `gorm:"size:128"`
-	Phone            string    `gorm:"size:32"` // 手机号，用于 SMS 通知
-	Status           string    `gorm:"type:enum('pending','active','disabled');default:pending"`
-	IsAdmin          bool      `gorm:"default:false"`
-	AdminPassword    string    `gorm:"column:admin_password;size:128"`
-	RoleId           *int64    `gorm:"column:role_id"`
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	Id              int64  `gorm:"primaryKey;autoIncrement"`
+	DingTalkUnionId string `gorm:"column:dingtalk_union_id;uniqueIndex;size:64;not null"`
+	Name            string `gorm:"size:64"`
+	Email           string `gorm:"size:128"`
+	Phone           string `gorm:"size:32"` // 手机号，用于 SMS 通知
+	Status          string `gorm:"type:enum('pending','active','disabled');default:pending"`
+	IsAdmin         bool   `gorm:"default:false"`
+	AdminPassword   string `gorm:"column:admin_password;size:128"`
+	RoleId          *int64 `gorm:"column:role_id"`
+	PrimaryHotelId  *int64 `gorm:"column:primary_hotel_id"` // 该用户"所属酒店"（日报渲染默认对标）
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (User) TableName() string { return "users" }

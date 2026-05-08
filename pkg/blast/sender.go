@@ -47,7 +47,8 @@ type FailItem struct {
 // sendBatch 给一组邮箱并发发模板邮件 + 落 email_logs。
 // 调用方负责传 emails 和 templateId；scheduleId 用来在 email_logs 里标记是哪个调度触发的（手动触发可传 0）。
 // source 只是日志前缀，用于区分调用来源。
-func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, scheduleId int64, source string) (*model.EmailLog, error) {
+// hotelOverride > 0 时，所有收件人都按这家酒店渲染（邮件组发送 = group.hotel_id）；否则按各自 user.primary_hotel_id 决定。
+func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, scheduleId int64, source string, hotelOverride int64) (*model.EmailLog, error) {
 	if len(emails) == 0 {
 		return nil, errors.New("收件人为空")
 	}
@@ -86,7 +87,7 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 		go func() {
 			defer func() { <-sem; wg.Done() }()
 			results[i].Email = addr
-			vars := recipientVars(e.DB, addr, now)
+			vars := recipientVars(e.DB, addr, now, hotelOverride)
 			subject, body, rerr := mail.RenderSubjectAndBody(tpl.Subject, tpl.Body, vars)
 			if rerr != nil {
 				results[i].Err = "模板渲染失败: " + rerr.Error()
@@ -198,13 +199,18 @@ func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
 		Where("lock_key = ?", "singleton").
 		Update("last_run_at", now)
 
-	return e.sendBatch(ctx, emails, sch.TemplateId, sch.Id, "blast")
+	return e.sendBatch(ctx, emails, sch.TemplateId, sch.Id, "blast", 0)
 }
 
 // SendGroup 给一个邮件组的所有成员发模板邮件，立即触发（不走 cron）。
+// 用 group.hotel_id 作为模板渲染的对标酒店（覆盖收件人各自的 primary_hotel_id），
+// 这样"金鸡湖万豪对接组"发出的邮件不论谁收到，HotelName / 出租率 都是金鸡湖万豪的。
 // 异步：调用方在 goroutine 里发，但本函数本身是同步的（每封邮件内部并发）。
-// 在 handler 里要"返回快，发送在后台"的话，handler 自己再用 go func() 包一下。
 func (e *Engine) SendGroup(ctx context.Context, groupId, templateId int64) (*model.EmailLog, error) {
+	var grp model.EmailGroup
+	if err := e.DB.First(&grp, groupId).Error; err != nil {
+		return nil, fmt.Errorf("邮件组不存在: %w", err)
+	}
 	// 加载组成员的邮箱
 	var emails []string
 	e.DB.Raw(`
@@ -214,7 +220,7 @@ func (e *Engine) SendGroup(ctx context.Context, groupId, templateId int64) (*mod
 	if len(dedup(emails)) == 0 {
 		return nil, errors.New("该邮件组没有可投递的成员")
 	}
-	return e.sendBatch(ctx, emails, templateId, 0, fmt.Sprintf("group:%d", groupId))
+	return e.sendBatch(ctx, emails, templateId, 0, fmt.Sprintf("group:%d", groupId), grp.HotelId)
 }
 
 // RetryFailed 拿一条 email_logs，把它的 fail_list 里所有失败邮箱重发一遍。
@@ -249,7 +255,8 @@ func (e *Engine) RetryFailed(ctx context.Context, logId int64) (*model.EmailLog,
 		Where("id = ?", src.Id).
 		UpdateColumn("retry_count", gorm.Expr("retry_count + 1"))
 
-	return e.sendBatch(ctx, emails, src.TemplateId, src.ScheduleId, fmt.Sprintf("retry:%d", src.Id))
+	// 重发不知道原始 hotelOverride（email_logs 没记），按收件人 primary_hotel_id 走
+	return e.sendBatch(ctx, emails, src.TemplateId, src.ScheduleId, fmt.Sprintf("retry:%d", src.Id), 0)
 }
 
 // RetryRecipient 只重发 email_log_recipients 表里某一行（单封）。
@@ -273,7 +280,7 @@ func (e *Engine) RetryRecipient(ctx context.Context, recipientId int64) (*model.
 	e.DB.Model(&model.EmailLogRecipient{}).
 		Where("id = ?", rec.Id).
 		UpdateColumn("retry_count", gorm.Expr("retry_count + 1"))
-	return e.sendBatch(ctx, []string{rec.Email}, src.TemplateId, src.ScheduleId, fmt.Sprintf("retry:%d", src.Id))
+	return e.sendBatch(ctx, []string{rec.Email}, src.TemplateId, src.ScheduleId, fmt.Sprintf("retry:%d", src.Id), 0)
 }
 
 // RetryAllFailed 重发所有 status in (partial, failed) 的日志的失败明细。

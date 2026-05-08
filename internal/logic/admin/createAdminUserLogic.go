@@ -46,6 +46,9 @@ func (l *CreateAdminUserLogic) CreateAdminUser(req *types.CreateAdminUserReq) (*
 	if req.RoleId > 0 {
 		user.RoleId = &req.RoleId
 	}
+	if req.PrimaryHotelId > 0 {
+		user.PrimaryHotelId = &req.PrimaryHotelId
+	}
 
 	if err := l.svcCtx.DB.Create(&user).Error; err != nil {
 		return nil, err

@@ -21,13 +21,14 @@ type AdminUserIdReq struct {
 }
 
 type AdminUserItem struct {
-	Id       int64   `json:"id"`
-	Name     string  `json:"name"`
-	Email    string  `json:"email"`
-	Phone    string  `json:"phone"`
-	Status   string  `json:"status"`
-	HotelIds []int64 `json:"hotelIds"`
-	RoleId   int64   `json:"roleId"`
+	Id             int64   `json:"id"`
+	Name           string  `json:"name"`
+	Email          string  `json:"email"`
+	Phone          string  `json:"phone"`
+	Status         string  `json:"status"`
+	HotelIds       []int64 `json:"hotelIds"`
+	RoleId         int64   `json:"roleId"`
+	PrimaryHotelId int64   `json:"primaryHotelId"`
 }
 
 type AdminUserListResp struct {
@@ -415,12 +416,18 @@ type UpdateUserPhoneReq struct {
 	Phone string `json:"phone"`
 }
 
+type UpdateUserPrimaryHotelReq struct {
+	Id             int64 `path:"id"`
+	PrimaryHotelId int64 `json:"primaryHotelId"` // 0 表示清除
+}
+
 type CreateAdminUserReq struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Email    string `json:"email,optional"`
-	Phone    string `json:"phone,optional"`
-	RoleId   int64  `json:"roleId,optional"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	Email          string `json:"email,optional"`
+	Phone          string `json:"phone,optional"`
+	RoleId         int64  `json:"roleId,optional"`
+	PrimaryHotelId int64  `json:"primaryHotelId,optional"`
 }
 
 type MailTemplateItem struct {

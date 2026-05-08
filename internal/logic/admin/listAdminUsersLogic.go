@@ -25,16 +25,17 @@ func NewListAdminUsersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Li
 
 func (l *ListAdminUsersLogic) ListAdminUsers() (resp *types.AdminUserListResp, err error) {
 	var users []struct {
-		Id      int64
-		Name    string
-		Email   string
-		Phone   string
-		Status  string
-		IsAdmin bool
-		RoleId  *int64
+		Id             int64
+		Name           string
+		Email          string
+		Phone          string
+		Status         string
+		IsAdmin        bool
+		RoleId         *int64
+		PrimaryHotelId *int64
 	}
 	if err = l.svcCtx.DB.Raw(
-		"SELECT id, name, email, phone, status, is_admin, role_id FROM users ORDER BY created_at DESC",
+		"SELECT id, name, email, phone, status, is_admin, role_id, primary_hotel_id FROM users ORDER BY created_at DESC",
 	).Scan(&users).Error; err != nil {
 		return nil, err
 	}
@@ -62,6 +63,9 @@ func (l *ListAdminUsersLogic) ListAdminUsers() (resp *types.AdminUserListResp, e
 		}
 		if u.RoleId != nil {
 			item.RoleId = *u.RoleId
+		}
+		if u.PrimaryHotelId != nil {
+			item.PrimaryHotelId = *u.PrimaryHotelId
 		}
 		resp.List = append(resp.List, item)
 	}
