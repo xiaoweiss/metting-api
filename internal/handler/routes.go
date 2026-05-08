@@ -65,6 +65,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: admin.UpdateUserEmailHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodPut,
+				Path:    "/api/admin/users/:id/phone",
+				Handler: admin.UpdateUserPhoneHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodPost,
 				Path:    "/api/admin/users",
 				Handler: admin.CreateAdminUserHandler(serverCtx),

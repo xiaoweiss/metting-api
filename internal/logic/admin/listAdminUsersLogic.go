@@ -28,12 +28,13 @@ func (l *ListAdminUsersLogic) ListAdminUsers() (resp *types.AdminUserListResp, e
 		Id      int64
 		Name    string
 		Email   string
+		Phone   string
 		Status  string
 		IsAdmin bool
 		RoleId  *int64
 	}
 	if err = l.svcCtx.DB.Raw(
-		"SELECT id, name, email, status, is_admin, role_id FROM users ORDER BY created_at DESC",
+		"SELECT id, name, email, phone, status, is_admin, role_id FROM users ORDER BY created_at DESC",
 	).Scan(&users).Error; err != nil {
 		return nil, err
 	}
@@ -55,6 +56,7 @@ func (l *ListAdminUsersLogic) ListAdminUsers() (resp *types.AdminUserListResp, e
 			Id:       u.Id,
 			Name:     u.Name,
 			Email:    u.Email,
+			Phone:    u.Phone,
 			Status:   u.Status,
 			HotelIds: permMap[u.Id],
 		}

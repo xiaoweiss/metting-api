@@ -38,6 +38,7 @@ func (l *CreateAdminUserLogic) CreateAdminUser(req *types.CreateAdminUserReq) (*
 		DingTalkUnionId: fmt.Sprintf("admin_%s", req.Username),
 		Name:            req.Username,
 		Email:           req.Email,
+		Phone:           req.Phone,
 		Status:          "active",
 		IsAdmin:         true,
 		AdminPassword:   string(hashed),

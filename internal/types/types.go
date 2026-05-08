@@ -24,6 +24,7 @@ type AdminUserItem struct {
 	Id       int64   `json:"id"`
 	Name     string  `json:"name"`
 	Email    string  `json:"email"`
+	Phone    string  `json:"phone"`
 	Status   string  `json:"status"`
 	HotelIds []int64 `json:"hotelIds"`
 	RoleId   int64   `json:"roleId"`
@@ -389,10 +390,16 @@ type UpdateUserEmailReq struct {
 	Email string `json:"email"`
 }
 
+type UpdateUserPhoneReq struct {
+	Id    int64  `path:"id"`
+	Phone string `json:"phone"`
+}
+
 type CreateAdminUserReq struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	Email    string `json:"email,optional"`
+	Phone    string `json:"phone,optional"`
 	RoleId   int64  `json:"roleId,optional"`
 }
 
