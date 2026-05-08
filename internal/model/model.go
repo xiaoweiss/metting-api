@@ -234,6 +234,16 @@ type SyncSchedule struct {
 
 func (SyncSchedule) TableName() string { return "sync_schedules" }
 
+// UpdateCheckSchedule 数据未录入提醒的 cron（跟 sync_schedules 同款结构）
+type UpdateCheckSchedule struct {
+	Id        int64  `gorm:"primaryKey;autoIncrement"`
+	CronExpr  string `gorm:"size:64;not null"`
+	Enabled   bool   `gorm:"default:true"`
+	UpdatedAt time.Time
+}
+
+func (UpdateCheckSchedule) TableName() string { return "update_check_schedules" }
+
 // NotificationSetting 通知渠道配置（sms / dingtalk_robot / dingtalk_ding）
 type NotificationSetting struct {
 	Id        int64     `gorm:"primaryKey;autoIncrement"`

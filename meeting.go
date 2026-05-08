@@ -51,10 +51,17 @@ func main() {
 		}()
 	}
 
-	// 启动每日更新检测调度器
-	if c.UpdateCheck.AutoStart && c.UpdateCheck.CronExpr != "" {
-		if err := ctx.CheckScheduler.Start(c.UpdateCheck.CronExpr); err != nil {
-			logx.Errorf("[UpdateCheck] 启动调度器失败: %v", err)
+	// 启动每日更新检测调度器：DB 配置优先，回退 yaml
+	{
+		var ucSchedule model.UpdateCheckSchedule
+		if err := ctx.DB.First(&ucSchedule).Error; err == nil && ucSchedule.Enabled {
+			if err := ctx.CheckScheduler.Start(ucSchedule.CronExpr); err != nil {
+				logx.Errorf("[UpdateCheck] 启动调度器失败: %v", err)
+			}
+		} else if c.UpdateCheck.AutoStart && c.UpdateCheck.CronExpr != "" {
+			if err := ctx.CheckScheduler.Start(c.UpdateCheck.CronExpr); err != nil {
+				logx.Errorf("[UpdateCheck] 启动调度器失败: %v", err)
+			}
 		}
 	}
 

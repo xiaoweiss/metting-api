@@ -164,6 +164,16 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/api/admin/update-checks/trigger",
 					Handler: admin.TriggerUpdateCheckHandler(serverCtx),
 				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/api/admin/update-checks/schedule",
+					Handler: admin.GetUpdateCheckScheduleHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPut,
+					Path:    "/api/admin/update-checks/schedule",
+					Handler: admin.UpdateUpdateCheckScheduleHandler(serverCtx),
+				},
 			}...,
 		),
 	)

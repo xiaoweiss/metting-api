@@ -271,6 +271,65 @@ func TriggerUpdateCheckHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
+// GetUpdateCheckScheduleHandler GET /api/admin/update-checks/schedule
+func GetUpdateCheckScheduleHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var s model.UpdateCheckSchedule
+		svcCtx.DB.First(&s)
+		resp := map[string]interface{}{
+			"cronExpr": s.CronExpr,
+			"enabled":  s.Enabled,
+		}
+		if next := svcCtx.CheckScheduler.NextRun(); !next.IsZero() {
+			resp["nextRun"] = next.Format(time.RFC3339)
+		} else {
+			resp["nextRun"] = ""
+		}
+		httpx.OkJsonCtx(r.Context(), w, resp)
+	}
+}
+
+// UpdateUpdateCheckScheduleHandler PUT /api/admin/update-checks/schedule
+func UpdateUpdateCheckScheduleHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			CronExpr string `json:"cronExpr"`
+			Enabled  bool   `json:"enabled"`
+		}
+		if err := httpx.Parse(r, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.CronExpr == "" {
+			http.Error(w, "cron 表达式不能为空", http.StatusBadRequest)
+			return
+		}
+		// 更新调度器
+		if req.Enabled {
+			if err := svcCtx.CheckScheduler.UpdateSchedule(req.CronExpr); err != nil {
+				http.Error(w, "无效的 cron 表达式: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			svcCtx.CheckScheduler.Stop()
+		}
+		// 落库（确保只有一行）
+		var s model.UpdateCheckSchedule
+		if err := svcCtx.DB.First(&s).Error; err != nil {
+			svcCtx.DB.Create(&model.UpdateCheckSchedule{CronExpr: req.CronExpr, Enabled: req.Enabled})
+		} else {
+			svcCtx.DB.Model(&s).Updates(map[string]interface{}{
+				"cron_expr": req.CronExpr,
+				"enabled":   req.Enabled,
+			})
+		}
+		httpx.OkJsonCtx(r.Context(), w, map[string]interface{}{
+			"cronExpr": req.CronExpr,
+			"enabled":  req.Enabled,
+		})
+	}
+}
+
 // ---------- 辅助 ----------
 
 func firstNonEmpty(ss ...string) string {

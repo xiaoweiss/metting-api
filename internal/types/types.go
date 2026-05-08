@@ -353,6 +353,17 @@ type UpdateSyncScheduleReq struct {
 	Enabled  bool   `json:"enabled"`
 }
 
+type UpdateCheckScheduleResp struct {
+	CronExpr string `json:"cronExpr"`
+	Enabled  bool   `json:"enabled"`
+	NextRun  string `json:"nextRun"`
+}
+
+type UpdateUpdateCheckScheduleReq struct {
+	CronExpr string `json:"cronExpr"`
+	Enabled  bool   `json:"enabled"`
+}
+
 type RoleItem struct {
 	Id    int64    `json:"id"`
 	Name  string   `json:"name"`
