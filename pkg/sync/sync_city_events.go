@@ -11,12 +11,12 @@ import (
 )
 
 // syncCityEvents 同步 City Event 表
-// 预期字段（名称基于 AI 表定义，空表时 fallback 无影响）：
-//   - 城市活动名称
-//   - 城市活动类型
-//   - 城市活动地址
-//   - 城市活动起始时间
-//   - 城市活动截止时间
+// 字段名含英文括号注释，必须完全匹配（钉钉返回的 key 是带括号的全名）
+//   - 城市活动名称（CityEvent_Name）
+//   - 城市活动类型（CityEvent_Type）
+//   - 场馆具体名称（Venue_Name）
+//   - 城市活动起始时间（CityEvent_Start Date）
+//   - 城市活动截止时间（CityEvent_End Date）
 func (e *Engine) syncCityEvents(ctx context.Context) error {
 	sheetId := e.cfg.DingTalk.Sheet.Sheets.CityEvents
 	if sheetId == "" {
@@ -45,15 +45,15 @@ func (e *Engine) syncCityEvents(ctx context.Context) error {
 
 	count, skipped := 0, 0
 	for _, row := range rows {
-		eventName := textField(row, "城市活动名称")
+		eventName := textField(row, "城市活动名称（CityEvent_Name）")
 		if eventName == "" {
 			skipped++
 			continue
 		}
-		eventType := singleSelectName(row, "城市活动类型")
-		venueName := textField(row, "城市活动地址")
-		startAt := dateField(row, "城市活动起始时间")
-		endAt := dateField(row, "城市活动截止时间")
+		eventType := singleSelectName(row, "城市活动类型（CityEvent_Type）")
+		venueName := textField(row, "场馆具体名称（Venue_Name）")
+		startAt := dateField(row, "城市活动起始时间（CityEvent_Start Date）")
+		endAt := dateField(row, "城市活动截止时间（CityEvent_End Date）")
 
 		if startAt == nil {
 			skipped++
