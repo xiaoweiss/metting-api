@@ -62,18 +62,10 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 	}
 
 	now := time.Now()
-	vars := map[string]interface{}{
-		"Date": now.Format("2006-01-02"),
-		"Time": now.Format("15:04"),
-	}
-	subject, body, err := mail.RenderSubjectAndBody(tpl.Subject, tpl.Body, vars)
-	if err != nil {
-		return nil, fmt.Errorf("模板渲染失败: %w", err)
-	}
-
 	emails = dedup(emails)
-
 	mailer := mail.NewSender(e.DB, e.Cfg)
+	// 不在这里预渲染 subject/body —— 每个收件人有自己的酒店/出租率，
+	// 进 goroutine 后用 recipientVars 各自装配 + 渲染。
 
 	// 单封结果（顺序与 emails 对齐）
 	type result struct {
@@ -94,6 +86,12 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 		go func() {
 			defer func() { <-sem; wg.Done() }()
 			results[i].Email = addr
+			vars := recipientVars(e.DB, addr, now)
+			subject, body, rerr := mail.RenderSubjectAndBody(tpl.Subject, tpl.Body, vars)
+			if rerr != nil {
+				results[i].Err = "模板渲染失败: " + rerr.Error()
+				return
+			}
 			if err := mailer.Send([]string{addr}, subject, body); err != nil {
 				results[i].Err = err.Error()
 				return
