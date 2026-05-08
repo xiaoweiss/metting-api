@@ -1,4 +1,5 @@
-// Package blast 全员群发邮件 —— 拿到模板 + 收件人列表 → goroutine pool 并发发 → 落 email_logs
+// Package blast 群发邮件 —— 全员定时群发 + 邮件组按需触发，
+// 共享同一套并发发送 + 落日志的代码。
 package blast
 
 import (
@@ -43,33 +44,24 @@ type FailItem struct {
 	Error string `json:"error"`
 }
 
-// RunBlast 执行一次全员群发：去重收件人 → 渲染模板 → goroutine pool 并发发 → 落日志
-// 返回 EmailLog 记录（已写入 DB），调用方可读 status / fail_list 来呈现结果。
-func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
-	// 1) 拉调度配置（包含 template_id 和 last_run_at）
-	var sch model.MailBlastSchedule
-	if err := e.DB.Where("lock_key = ?", "singleton").First(&sch).Error; err != nil {
-		return nil, fmt.Errorf("查询群发调度失败: %w", err)
+// sendBatch 给一组邮箱并发发模板邮件 + 落 email_logs。
+// 调用方负责传 emails 和 templateId；scheduleId 用来在 email_logs 里标记是哪个调度触发的（手动触发可传 0）。
+// source 只是日志前缀，用于区分调用来源。
+func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, scheduleId int64, source string) (*model.EmailLog, error) {
+	if len(emails) == 0 {
+		return nil, errors.New("收件人为空")
 	}
-	if sch.TemplateId == 0 {
+	if templateId == 0 {
 		return nil, errors.New("未选择邮件模板")
 	}
 
-	// 2) 防抖：30 秒内已经跑过 → 跳过（cron 触发后再被人手动 trigger 一次就跳过）
-	now := time.Now()
-	if sch.LastRunAt != nil && now.Sub(*sch.LastRunAt) < minDebounce {
-		logx.Infof("[Blast] 防抖：上次发送 %s，距今 %s 不足 %s，跳过",
-			sch.LastRunAt.Format(time.RFC3339), now.Sub(*sch.LastRunAt), minDebounce)
-		return nil, fmt.Errorf("距上次发送不足 %s，已跳过", minDebounce)
-	}
-
-	// 3) 加载模板
+	// 加载模板
 	var tpl model.MailTemplate
-	if err := e.DB.First(&tpl, sch.TemplateId).Error; err != nil {
-		return nil, fmt.Errorf("模板不存在 (id=%d): %w", sch.TemplateId, err)
+	if err := e.DB.First(&tpl, templateId).Error; err != nil {
+		return nil, fmt.Errorf("模板不存在 (id=%d): %w", templateId, err)
 	}
 
-	// 4) 渲染主题 + 正文（用通用变量；目前先传 .Date / .Time）
+	now := time.Now()
 	vars := map[string]interface{}{
 		"Date": now.Format("2006-01-02"),
 		"Time": now.Format("15:04"),
@@ -79,25 +71,8 @@ func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
 		return nil, fmt.Errorf("模板渲染失败: %w", err)
 	}
 
-	// 5) 拉收件人 —— users.email 去重 + active
-	var emails []string
-	e.DB.Raw(`
-		SELECT DISTINCT email FROM users
-		WHERE email <> '' AND status = 'active'
-	`).Scan(&emails)
-	emails = dedup(emails) // 双保险，DISTINCT 已经做过
+	emails = dedup(emails)
 
-	if len(emails) == 0 {
-		return nil, errors.New("没有可投递的收件人（users.email 全为空）")
-	}
-
-	// 6) 抢占 last_run_at —— 在真正开始前就把 last_run_at 写上，
-	//    这样如果别的地方同时触发，能立刻被防抖挡掉
-	e.DB.Model(&model.MailBlastSchedule{}).
-		Where("lock_key = ?", "singleton").
-		Update("last_run_at", now)
-
-	// 7) goroutine pool 并发发
 	mailer := mail.NewSender(e.DB, e.Cfg)
 	var (
 		failMu  sync.Mutex
@@ -123,7 +98,6 @@ func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
 	}
 	wg.Wait()
 
-	// 8) 落 email_logs
 	status := "success"
 	if len(fails) > 0 {
 		if int(okCount) == 0 {
@@ -134,7 +108,7 @@ func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
 	}
 	failJSON, _ := json.Marshal(fails)
 	logRow := model.EmailLog{
-		ScheduleId: sch.Id,
+		ScheduleId: scheduleId,
 		Status:     status,
 		Total:      len(emails),
 		FailCount:  len(fails),
@@ -143,12 +117,65 @@ func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
 		CreatedAt:  now,
 	}
 	if err := e.DB.Create(&logRow).Error; err != nil {
-		logx.Errorf("[Blast] 写 email_logs 失败: %v", err)
+		logx.Errorf("[%s] 写 email_logs 失败: %v", source, err)
 	}
 
-	logx.Infof("[Blast] 全员群发完成：总 %d / 成功 %d / 失败 %d, status=%s",
-		len(emails), okCount, len(fails), status)
+	logx.Infof("[%s] 群发完成：总 %d / 成功 %d / 失败 %d, status=%s",
+		source, len(emails), okCount, len(fails), status)
 	return &logRow, nil
+}
+
+// RunBlast 执行一次全员群发（cron 触发或手动触发都走这里）：
+//   - 拉 mail_blast_schedules.singleton 配置
+//   - 30 秒防抖
+//   - 收件人 = users 里所有 active 且填了邮箱的人
+func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
+	var sch model.MailBlastSchedule
+	if err := e.DB.Where("lock_key = ?", "singleton").First(&sch).Error; err != nil {
+		return nil, fmt.Errorf("查询群发调度失败: %w", err)
+	}
+	if sch.TemplateId == 0 {
+		return nil, errors.New("未选择邮件模板")
+	}
+
+	now := time.Now()
+	if sch.LastRunAt != nil && now.Sub(*sch.LastRunAt) < minDebounce {
+		logx.Infof("[Blast] 防抖：上次发送 %s，距今 %s 不足 %s，跳过",
+			sch.LastRunAt.Format(time.RFC3339), now.Sub(*sch.LastRunAt), minDebounce)
+		return nil, fmt.Errorf("距上次发送不足 %s，已跳过", minDebounce)
+	}
+
+	var emails []string
+	e.DB.Raw(`
+		SELECT DISTINCT email FROM users
+		WHERE email <> '' AND status = 'active'
+	`).Scan(&emails)
+	if len(dedup(emails)) == 0 {
+		return nil, errors.New("没有可投递的收件人（users.email 全为空）")
+	}
+
+	// 抢占 last_run_at —— 真正发送前先写，避免并发时两个调度都过了防抖检查
+	e.DB.Model(&model.MailBlastSchedule{}).
+		Where("lock_key = ?", "singleton").
+		Update("last_run_at", now)
+
+	return e.sendBatch(ctx, emails, sch.TemplateId, sch.Id, "Blast")
+}
+
+// SendGroup 给一个邮件组的所有成员发模板邮件，立即触发（不走 cron）。
+// 异步：调用方在 goroutine 里发，但本函数本身是同步的（每封邮件内部并发）。
+// 在 handler 里要"返回快，发送在后台"的话，handler 自己再用 go func() 包一下。
+func (e *Engine) SendGroup(ctx context.Context, groupId, templateId int64) (*model.EmailLog, error) {
+	// 加载组成员的邮箱
+	var emails []string
+	e.DB.Raw(`
+		SELECT DISTINCT email FROM email_group_members
+		WHERE group_id = ? AND email <> ''
+	`, groupId).Scan(&emails)
+	if len(dedup(emails)) == 0 {
+		return nil, errors.New("该邮件组没有可投递的成员")
+	}
+	return e.sendBatch(ctx, emails, templateId, 0, fmt.Sprintf("GroupSend g=%d", groupId))
 }
 
 func dedup(in []string) []string {

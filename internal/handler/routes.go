@@ -281,6 +281,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: email.DeleteEmailGroupHandler(serverCtx),
 				},
 				{
+					Method:  http.MethodPost,
+					Path:    "/api/email/groups/:id/send",
+					Handler: email.SendGroupHandler(serverCtx),
+				},
+				{
 					Method:  http.MethodGet,
 					Path:    "/api/email/groups/:id/members",
 					Handler: email.ListEmailGroupMembersHandler(serverCtx),
