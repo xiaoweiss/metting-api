@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"meeting/pkg/cronx"
+
 	"github.com/robfig/cron/v3"
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -16,11 +18,15 @@ type Scheduler struct {
 }
 
 func NewScheduler(engine *Engine) *Scheduler {
-	return &Scheduler{cron: cron.New(), engine: engine}
+	return &Scheduler{cron: cronx.New(), engine: engine}
 }
 
 func (s *Scheduler) Start(cronExpr string) error {
-	id, err := s.cron.AddFunc(cronExpr, func() {
+	expr, err := cronx.Normalize(cronExpr)
+	if err != nil {
+		return err
+	}
+	id, err := s.cron.AddFunc(expr, func() {
 		_, err := s.engine.RunCheck(context.Background(), time.Time{})
 		if err != nil {
 			logx.Errorf("[UpdateCheck] 定时检测失败: %v", err)
@@ -30,9 +36,9 @@ func (s *Scheduler) Start(cronExpr string) error {
 		return err
 	}
 	s.entryID = id
-	s.expr = cronExpr
+	s.expr = expr
 	s.cron.Start()
-	logx.Infof("[UpdateCheck] 调度器已启动，cron: %s", cronExpr)
+	logx.Infof("[UpdateCheck] 调度器已启动，cron: %s", expr)
 	return nil
 }
 

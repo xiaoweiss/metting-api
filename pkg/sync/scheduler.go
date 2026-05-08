@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"meeting/pkg/cronx"
+
 	"github.com/robfig/cron/v3"
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -16,14 +18,18 @@ type Scheduler struct {
 
 func NewScheduler(engine *Engine) *Scheduler {
 	return &Scheduler{
-		cron:   cron.New(),
+		cron:   cronx.New(),
 		engine: engine,
 	}
 }
 
-// Start 启动定时同步
+// Start 启动定时同步（支持 5 / 6 字段 cron，5 字段自动补秒为 0）
 func (s *Scheduler) Start(cronExpr string) error {
-	id, err := s.cron.AddFunc(cronExpr, func() {
+	expr, err := cronx.Normalize(cronExpr)
+	if err != nil {
+		return err
+	}
+	id, err := s.cron.AddFunc(expr, func() {
 		ctx := context.Background()
 		if err := s.engine.RunFullSync(ctx); err != nil {
 			logx.Errorf("[DataSync] 定时同步失败: %v", err)
@@ -34,14 +40,18 @@ func (s *Scheduler) Start(cronExpr string) error {
 	}
 	s.entryID = id
 	s.cron.Start()
-	logx.Infof("[DataSync] 调度器已启动，cron: %s", cronExpr)
+	logx.Infof("[DataSync] 调度器已启动，cron: %s", expr)
 	return nil
 }
 
 // UpdateSchedule 运行时更新 cron 表达式
 func (s *Scheduler) UpdateSchedule(cronExpr string) error {
+	expr, err := cronx.Normalize(cronExpr)
+	if err != nil {
+		return err
+	}
 	s.cron.Remove(s.entryID)
-	id, err := s.cron.AddFunc(cronExpr, func() {
+	id, err := s.cron.AddFunc(expr, func() {
 		ctx := context.Background()
 		if err := s.engine.RunFullSync(ctx); err != nil {
 			logx.Errorf("[DataSync] 定时同步失败: %v", err)
@@ -51,7 +61,7 @@ func (s *Scheduler) UpdateSchedule(cronExpr string) error {
 		return err
 	}
 	s.entryID = id
-	logx.Infof("[DataSync] 调度已更新，cron: %s", cronExpr)
+	logx.Infof("[DataSync] 调度已更新，cron: %s", expr)
 	return nil
 }
 
