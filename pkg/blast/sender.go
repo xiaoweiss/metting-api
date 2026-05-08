@@ -106,9 +106,12 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 			status = "partial"
 		}
 	}
+
 	failJSON, _ := json.Marshal(fails)
 	logRow := model.EmailLog{
 		ScheduleId: scheduleId,
+		TemplateId: templateId,
+		Source:     source,
 		Status:     status,
 		Total:      len(emails),
 		FailCount:  len(fails),
@@ -159,7 +162,7 @@ func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
 		Where("lock_key = ?", "singleton").
 		Update("last_run_at", now)
 
-	return e.sendBatch(ctx, emails, sch.TemplateId, sch.Id, "Blast")
+	return e.sendBatch(ctx, emails, sch.TemplateId, sch.Id, "blast")
 }
 
 // SendGroup 给一个邮件组的所有成员发模板邮件，立即触发（不走 cron）。
@@ -175,7 +178,64 @@ func (e *Engine) SendGroup(ctx context.Context, groupId, templateId int64) (*mod
 	if len(dedup(emails)) == 0 {
 		return nil, errors.New("该邮件组没有可投递的成员")
 	}
-	return e.sendBatch(ctx, emails, templateId, 0, fmt.Sprintf("GroupSend g=%d", groupId))
+	return e.sendBatch(ctx, emails, templateId, 0, fmt.Sprintf("group:%d", groupId))
+}
+
+// RetryFailed 拿一条 email_logs，把它的 fail_list 里所有失败邮箱重发一遍。
+// 用同一个 templateId（落在 email_logs.template_id），落新一行 email_logs。
+// retryCount 在原始日志上 +1，方便前端展示重试次数。
+func (e *Engine) RetryFailed(ctx context.Context, logId int64) (*model.EmailLog, error) {
+	var src model.EmailLog
+	if err := e.DB.First(&src, logId).Error; err != nil {
+		return nil, fmt.Errorf("日志不存在: %w", err)
+	}
+	if src.TemplateId == 0 {
+		return nil, errors.New("该日志缺少 template_id（可能是迁移前的历史日志），无法自动重发")
+	}
+	if src.FailList == "" || src.FailList == "[]" || src.FailList == "null" {
+		return nil, errors.New("该日志没有失败明细，无需重发")
+	}
+	var items []FailItem
+	if err := json.Unmarshal([]byte(src.FailList), &items); err != nil {
+		return nil, fmt.Errorf("解析 fail_list 失败: %w", err)
+	}
+	emails := make([]string, 0, len(items))
+	for _, it := range items {
+		if it.Email != "" {
+			emails = append(emails, it.Email)
+		}
+	}
+	if len(emails) == 0 {
+		return nil, errors.New("没有可重发的失败邮箱")
+	}
+	// 原始日志的重试计数 +1（即使新发也失败了，也代表用户做过一次重发动作）
+	e.DB.Model(&model.EmailLog{}).
+		Where("id = ?", src.Id).
+		UpdateColumn("retry_count", gorm.Expr("retry_count + 1"))
+
+	return e.sendBatch(ctx, emails, src.TemplateId, src.ScheduleId, fmt.Sprintf("retry:%d", src.Id))
+}
+
+// RetryAllFailed 重发所有 status in (partial, failed) 的日志的失败明细。
+// 串行处理每条日志（每条内部已经 goroutine 并发）。返回每条结果。
+func (e *Engine) RetryAllFailed(ctx context.Context) ([]*model.EmailLog, error) {
+	var srcLogs []model.EmailLog
+	e.DB.Where("status IN ('partial','failed') AND template_id > 0 AND fail_count > 0").
+		Order("id DESC").
+		Find(&srcLogs)
+	if len(srcLogs) == 0 {
+		return nil, errors.New("没有可重发的失败日志")
+	}
+	results := make([]*model.EmailLog, 0, len(srcLogs))
+	for _, s := range srcLogs {
+		newLog, err := e.RetryFailed(ctx, s.Id)
+		if err != nil {
+			logx.Errorf("[RetryAll] log_id=%d 重发失败: %v", s.Id, err)
+			continue
+		}
+		results = append(results, newLog)
+	}
+	return results, nil
 }
 
 func dedup(in []string) []string {

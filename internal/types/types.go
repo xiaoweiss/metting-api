@@ -165,13 +165,17 @@ type EmailLogIdReq struct {
 }
 
 type EmailLogItem struct {
-	Id         int64  `json:"id"`
-	ScheduleId int64  `json:"scheduleId"`
-	Status     string `json:"status"`
-	Total      int    `json:"total"`
-	FailCount  int    `json:"failCount"`
-	RetryCount int    `json:"retryCount"`
-	SentAt     string `json:"sentAt"`
+	Id           int64  `json:"id"`
+	ScheduleId   int64  `json:"scheduleId"`
+	TemplateId   int64  `json:"templateId"`
+	TemplateName string `json:"templateName"`
+	Source       string `json:"source"`        // 'blast' / 'group:<id>' / 'retry:<id>' / 'legacy'
+	SourceLabel  string `json:"sourceLabel"`   // 中文展示，比如「全员群发」「邮件组：销售组」「重发」
+	Status       string `json:"status"`
+	Total        int    `json:"total"`
+	FailCount    int    `json:"failCount"`
+	RetryCount   int    `json:"retryCount"`
+	SentAt       string `json:"sentAt"`
 }
 
 type EmailLogListReq struct {
@@ -209,7 +213,12 @@ type SendToUserReq struct {
 }
 
 type FailListResp struct {
-	List []string `json:"list"` // 失败邮件地址
+	List []FailListItem `json:"list"`
+}
+
+type FailListItem struct {
+	Email string `json:"email"`
+	Error string `json:"error"`
 }
 
 type HotelDetailItem struct {

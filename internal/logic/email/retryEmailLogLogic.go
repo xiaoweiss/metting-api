@@ -23,8 +23,12 @@ func NewRetryEmailLogLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Ret
 	}
 }
 
-func (l *RetryEmailLogLogic) RetryEmailLog(req *types.EmailLogIdReq) (resp *types.BaseResp, err error) {
-	// todo: add your logic here and delete this line
-
-	return
+// RetryEmailLog 同步触发：把指定日志里的失败邮箱重发一遍。
+// 内部已经 goroutine 并发，handler 在收件人不多时直接等结果即可；
+// 若收件人多想立刻返回，前端调用 retry-all 走异步路径。
+func (l *RetryEmailLogLogic) RetryEmailLog(req *types.EmailLogIdReq) (*types.BaseResp, error) {
+	if _, err := l.svcCtx.BlastEngine.RetryFailed(l.ctx, req.Id); err != nil {
+		return nil, err
+	}
+	return &types.BaseResp{Message: "ok"}, nil
 }

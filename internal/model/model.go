@@ -179,6 +179,8 @@ func (EmailSchedule) TableName() string { return "email_schedules" }
 type EmailLog struct {
 	Id         int64     `gorm:"primaryKey;autoIncrement"`
 	ScheduleId int64     `gorm:"index"`
+	TemplateId int64     `gorm:"column:template_id;index"`         // 模板 id，重发时用
+	Source     string    `gorm:"size:64"`                          // 'blast' / 'group:<id>' / 'manual' / 'legacy'
 	Status     string    `gorm:"type:enum('success','partial','failed');not null"`
 	Total      int
 	FailCount  int

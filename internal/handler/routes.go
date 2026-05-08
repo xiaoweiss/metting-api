@@ -306,6 +306,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: email.RetryEmailLogHandler(serverCtx),
 				},
 				{
+					Method:  http.MethodPost,
+					Path:    "/api/email/logs/retry-all-failed",
+					Handler: email.RetryAllFailedHandler(serverCtx),
+				},
+				{
 					Method:  http.MethodGet,
 					Path:    "/api/email/schedules",
 					Handler: email.ListSchedulesHandler(serverCtx),
