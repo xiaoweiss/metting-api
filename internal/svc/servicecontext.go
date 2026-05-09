@@ -72,7 +72,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	checkScheduler := check.NewScheduler(checkEngine)
 
 	// 初始化全员邮件群发引擎 + 调度器
-	blastEngine := blast.NewEngine(db, c)
+	blastEngine := blast.NewEngine(db, rdb, c)
 	blastScheduler := blast.NewScheduler(blastEngine)
 
 	return &ServiceContext{

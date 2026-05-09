@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"meeting/internal/config"
@@ -30,12 +31,13 @@ const concurrency = 6
 const minDebounce = 30 * time.Second
 
 type Engine struct {
-	DB  *gorm.DB
-	Cfg config.Config
+	DB    *gorm.DB
+	Cfg   config.Config
+	Redis *redis.Client // 用于看板图缺失提醒的 24h dedupe;可空,空时降级直发
 }
 
-func NewEngine(db *gorm.DB, cfg config.Config) *Engine {
-	return &Engine{DB: db, Cfg: cfg}
+func NewEngine(db *gorm.DB, rdb *redis.Client, cfg config.Config) *Engine {
+	return &Engine{DB: db, Redis: rdb, Cfg: cfg}
 }
 
 // FailItem 单封发送失败的细节，会序列化进 email_logs.fail_list
@@ -346,10 +348,6 @@ func (e *Engine) RetryAllFailed(ctx context.Context) ([]*model.EmailLog, error) 
 	}
 	return results, nil
 }
-
-// notifyMissingHotels 在 batch 结束后,按 (hotelId, date) 聚合发钉钉群机器人提醒。
-// 实现 + dedupe(24h)在 notify_missing.go(任务 8)。本方法是钩子,这里先空实现。
-func (e *Engine) notifyMissingHotels(_ context.Context, _ *sync.Map) {}
 
 func dedup(in []string) []string {
 	seen := map[string]struct{}{}
