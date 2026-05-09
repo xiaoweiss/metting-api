@@ -55,11 +55,12 @@ type Config struct {
 	}
 
 	Mail struct {
-		Host     string `json:",default=smtp.qiye.aliyun.com"`
-		Port     int    `json:",default=465"`
-		Username string
-		Password string
-		FromName string `json:",default=会议室运营平台"`
+		Host        string `json:",default=smtp.qiye.aliyun.com"`
+		Port        int    `json:",default=465"`
+		Username    string
+		Password    string
+		FromName    string `json:",default=会议室运营平台"`
+		SnapshotDir string `json:",default=./data/snapshots"` // 看板截图留存目录,prod 用 /data/snapshots
 	}
 
 	FrontendURL string `json:",default=http://localhost:5173"`

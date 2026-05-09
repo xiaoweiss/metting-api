@@ -51,5 +51,6 @@ Mail:
   Username: ""
   Password: ""
   FromName: "会议室运营平台"
+  SnapshotDir: "./data/snapshots"   # 看板截图留存目录,prod 改 /data/snapshots
 
 FrontendURL: "http://localhost:5173"
