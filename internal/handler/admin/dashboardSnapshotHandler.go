@@ -184,15 +184,21 @@ func ListDashboardSnapshotsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc 
 // 提供静态预览。路径校验防止穿越。
 func ServeDashboardSnapshotHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		year := chiParam(r, "year")
-		month := chiParam(r, "month")
-		filename := chiParam(r, "filename")
+		var req struct {
+			Year     string `path:"year"`
+			Month    string `path:"month"`
+			Filename string `path:"filename"`
+		}
+		if err := httpx.Parse(r, &req); err != nil {
+			http.Error(w, "非法路径: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		// 严格校验:year=4 位数字, month=2 位数字, filename 不含 / .. 等
-		if !isYear(year) || !isMonth(month) || !isSafeFilename(filename) {
+		if !isYear(req.Year) || !isMonth(req.Month) || !isSafeFilename(req.Filename) {
 			http.Error(w, "非法路径", http.StatusBadRequest)
 			return
 		}
-		relPath := filepath.Join(year, month, filename)
+		relPath := filepath.Join(req.Year, req.Month, req.Filename)
 		absPath := filepath.Join(svcCtx.Config.Mail.SnapshotDir, relPath)
 		// 再校验 absPath 落在 SnapshotDir 内
 		root, _ := filepath.Abs(svcCtx.Config.Mail.SnapshotDir)
@@ -212,17 +218,8 @@ func ServeDashboardSnapshotHandler(svcCtx *svc.ServiceContext) http.HandlerFunc 
 		}
 		defer f.Close()
 		stat, _ := f.Stat()
-		http.ServeContent(w, r, filename, stat.ModTime(), f)
+		http.ServeContent(w, r, req.Filename, stat.ModTime(), f)
 	}
-}
-
-func chiParam(r *http.Request, key string) string {
-	// go-zero: path params from rest router
-	v := r.PathValue(key)
-	if v != "" {
-		return v
-	}
-	return r.URL.Query().Get(key)
 }
 
 func isYear(s string) bool {
