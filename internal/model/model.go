@@ -298,3 +298,18 @@ type HotelUpdateCheck struct {
 }
 
 func (HotelUpdateCheck) TableName() string { return "hotel_update_checks" }
+
+// DashboardSnapshot PC 端「保存」时上传的看板截图,按 (hotel_id, snapshot_date, mode, format) 唯一,UPSERT 覆盖最新
+type DashboardSnapshot struct {
+	Id           int64     `gorm:"primaryKey;autoIncrement"`
+	HotelId      int64     `gorm:"column:hotel_id;not null;uniqueIndex:uk_hotel_date_mode_format,priority:1"`
+	SnapshotDate time.Time `gorm:"column:snapshot_date;type:date;not null;uniqueIndex:uk_hotel_date_mode_format,priority:2"`
+	Mode         string    `gorm:"size:16;not null;uniqueIndex:uk_hotel_date_mode_format,priority:3"` // 'occupancy' | 'bookings'
+	Format       string    `gorm:"size:8;not null;uniqueIndex:uk_hotel_date_mode_format,priority:4"`  // 'png' | 'pdf'
+	FilePath     string    `gorm:"column:file_path;size:255;not null"`
+	FileSize     int64     `gorm:"column:file_size"`
+	UploadedBy   *int64    `gorm:"column:uploaded_by"`
+	UploadedAt   time.Time `gorm:"column:uploaded_at;autoCreateTime"`
+}
+
+func (DashboardSnapshot) TableName() string { return "dashboard_snapshots" }
