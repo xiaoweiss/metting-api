@@ -194,6 +194,21 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/api/admin/mail-blast/trigger",
 					Handler: admin.TriggerMailBlastHandler(serverCtx),
 				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/api/admin/dashboard-snapshots",
+					Handler: admin.UploadDashboardSnapshotHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/api/admin/dashboard-snapshots",
+					Handler: admin.ListDashboardSnapshotsHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/admin/snapshots/:year/:month/:filename",
+					Handler: admin.ServeDashboardSnapshotHandler(serverCtx),
+				},
 			}...,
 		),
 	)
