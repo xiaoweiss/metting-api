@@ -87,13 +87,13 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 		go func() {
 			defer func() { <-sem; wg.Done() }()
 			results[i].Email = addr
-			vars := recipientVars(e.DB, addr, now, hotelOverride)
+			vars, inlineImages, _, _ := recipientVars(e.DB, e.Cfg, addr, now, hotelOverride)
 			subject, body, rerr := mail.RenderSubjectAndBody(tpl.Subject, tpl.Body, vars)
 			if rerr != nil {
 				results[i].Err = "模板渲染失败: " + rerr.Error()
 				return
 			}
-			if err := mailer.Send([]string{addr}, subject, body, nil); err != nil {
+			if err := mailer.Send([]string{addr}, subject, body, inlineImages); err != nil {
 				results[i].Err = err.Error()
 				return
 			}

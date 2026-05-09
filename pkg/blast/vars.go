@@ -3,12 +3,20 @@ package blast
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
+	"meeting/internal/config"
 	"meeting/internal/model"
+	"meeting/pkg/mail"
+)
+
+// SkipReason 渲染阶段表达"跳过该 recipient"的原因
+const (
+	SkipReasonSnapshotMissing = "snapshot_missing"
 )
 
 // recipientVars 按 email 装配模板变量。所有动态字段都是字符串，没数据时填 "—"。
@@ -16,8 +24,14 @@ import (
 // hotelOverride > 0 时用它作为对标酒店（邮件组发送场景，按 group.hotel_id 覆盖）；
 // 否则按收件人 users.primary_hotel_id 取；都没有的话 fallback 到关联酒店里第一家有 venue 的。
 //
-// 模板里能用的变量：
-//   - {{.Date}}            报告日期 YYYY-MM-DD
+// 返回值:
+//   - vars: 模板变量,包括 {{.DashboardImage}}(命中时是 "cid:basename",未命中是空串)
+//   - inlineImages: 命中 snapshot 时本邮件需要 Embed 的图片列表
+//   - skipReason: 非空字符串表示该 recipient 应被跳过(目前只有 snapshot_missing)
+//   - hotelId: 解析出来的对标酒店 id(可能是 0)
+//
+// 模板里能用的变量:
+//   - {{.Date}}            报告日期 YYYY-MM-DD (Asia/Shanghai)
 //   - {{.Time}}            发送时间 HH:MM
 //   - {{.UserName}}        收件人姓名
 //   - {{.HotelName}}       对标酒店名
@@ -26,15 +40,26 @@ import (
 //   - {{.PM}}              下午出租率
 //   - {{.CompRate}}        竞对群当日均值
 //   - {{.MarketRate}}      商圈当日均值
-//   - {{.HotelRate}}       同 OccupancyRate（保留旧名字向后兼容）
-//   - {{.MorningRate}}     同 AM（向后兼容）
-//   - {{.AfternoonRate}}   同 PM
-//   - {{.CompetitorRate}}  同 CompRate
-func recipientVars(db *gorm.DB, email string, when time.Time, hotelOverride int64) map[string]interface{} {
-	dateStr := when.Format("2006-01-02")
-	vars := map[string]interface{}{
+//   - {{.HotelRate}} / {{.MorningRate}} / {{.AfternoonRate}} / {{.CompetitorRate}}: 兼容旧名
+//   - {{.DashboardImage}}  本月日历图 cid 引用,模板里 <img src="{{.DashboardImage}}">
+func recipientVars(
+	db *gorm.DB,
+	cfg config.Config,
+	email string,
+	when time.Time,
+	hotelOverride int64,
+) (
+	vars map[string]interface{},
+	inlineImages []mail.InlineImage,
+	skipReason string,
+	hotelId int64,
+) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	dateStr := when.In(loc).Format("2006-01-02")
+
+	vars = map[string]interface{}{
 		"Date":           dateStr,
-		"Time":           when.Format("15:04"),
+		"Time":           when.In(loc).Format("15:04"),
 		"UserName":       defaultUserName(email),
 		"HotelName":      "—",
 		"OccupancyRate":  "—",
@@ -46,27 +71,26 @@ func recipientVars(db *gorm.DB, email string, when time.Time, hotelOverride int6
 		"MorningRate":    "—",
 		"AfternoonRate":  "—",
 		"CompetitorRate": "—",
+		"DashboardImage": "",
 	}
 
-	// 1) email → user（拿 UserName + primary_hotel_id）
+	// 1) email → user(拿 UserName + primary_hotel_id)
 	var user model.User
 	if err := db.Where("email = ?", email).First(&user).Error; err != nil || user.Id == 0 {
-		// 不是系统用户：如果 hotelOverride 给了，仍然按它渲染酒店字段
 		if hotelOverride > 0 {
 			fillHotelVars(db, vars, hotelOverride, dateStr)
+			hotelId = hotelOverride
+			loadDashboardImage(db, cfg, vars, &inlineImages, &skipReason, hotelId, dateStr, loc)
+		} else {
+			skipReason = SkipReasonSnapshotMissing
 		}
-		return vars
+		return
 	}
 	if user.Name != "" {
 		vars["UserName"] = user.Name
 	}
 
-	// 2) 决定对标酒店 id 的优先级：
-	//    a. hotelOverride（邮件组发送时 group.hotel_id 覆盖）
-	//    b. user.primary_hotel_id（"所属酒店"）
-	//    c. user_hotel_perms 里第一家有 venue 的（兜底）
-	//    d. user_hotel_perms 里 hotel_id 最小的（再兜底，至少能渲染 HotelName）
-	var hotelId int64
+	// 2) 决定对标酒店 id 的优先级
 	switch {
 	case hotelOverride > 0:
 		hotelId = hotelOverride
@@ -85,10 +109,45 @@ func recipientVars(db *gorm.DB, email string, when time.Time, hotelOverride int6
 		}
 	}
 	if hotelId == 0 {
-		return vars
+		skipReason = SkipReasonSnapshotMissing
+		return
 	}
+
 	fillHotelVars(db, vars, hotelId, dateStr)
-	return vars
+	loadDashboardImage(db, cfg, vars, &inlineImages, &skipReason, hotelId, dateStr, loc)
+	return
+}
+
+// loadDashboardImage 查 (hotelId, date, occupancy, png) 的 snapshot,命中则填 vars + inlineImages,
+// 未命中设置 skipReason = snapshot_missing。
+func loadDashboardImage(
+	db *gorm.DB,
+	cfg config.Config,
+	vars map[string]interface{},
+	inlineImages *[]mail.InlineImage,
+	skipReason *string,
+	hotelId int64,
+	dateStr string,
+	loc *time.Location,
+) {
+	snapDate, err := time.ParseInLocation("2006-01-02", dateStr, loc)
+	if err != nil {
+		*skipReason = SkipReasonSnapshotMissing
+		return
+	}
+	var snap model.DashboardSnapshot
+	res := db.Where(
+		"hotel_id = ? AND snapshot_date = ? AND mode = ? AND format = ?",
+		hotelId, snapDate, "occupancy", "png",
+	).First(&snap)
+	if res.Error != nil || snap.Id == 0 {
+		*skipReason = SkipReasonSnapshotMissing
+		return
+	}
+	cid := filepath.Base(snap.FilePath)
+	vars["DashboardImage"] = "cid:" + cid
+	abs := filepath.Join(cfg.Mail.SnapshotDir, snap.FilePath)
+	*inlineImages = append(*inlineImages, mail.InlineImage{FilePath: abs})
 }
 
 // fillHotelVars 给定 hotelId + 日期，把酒店相关变量填到 vars。
