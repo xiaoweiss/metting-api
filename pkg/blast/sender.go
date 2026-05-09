@@ -93,7 +93,7 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 				results[i].Err = "模板渲染失败: " + rerr.Error()
 				return
 			}
-			if err := mailer.Send([]string{addr}, subject, body); err != nil {
+			if err := mailer.Send([]string{addr}, subject, body, nil); err != nil {
 				results[i].Err = err.Error()
 				return
 			}

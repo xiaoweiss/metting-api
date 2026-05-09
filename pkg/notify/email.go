@@ -43,7 +43,7 @@ func (s *EmailSender) Send(ctx context.Context, msg Message) error {
 
 	body := buildEmailHtml(msg)
 	mailer := mail.NewSender(s.DB, s.Cfg)
-	return mailer.Send(msg.Emails, subject, body)
+	return mailer.Send(msg.Emails, subject, body, nil)
 }
 
 // buildEmailHtml 优先用 HtmlBody；没有则把 Markdown 简单转 HTML（保留换行 + bullet）；

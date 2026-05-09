@@ -96,7 +96,7 @@ func (l *SendToUserLogic) SendToUser(req *types.SendToUserReq) (resp *types.Base
 	}
 
 	sender := pkgmail.NewSender(l.svcCtx.DB, l.svcCtx.Config)
-	if err := sender.Send([]string{u.Email}, subject, body); err != nil {
+	if err := sender.Send([]string{u.Email}, subject, body, nil); err != nil {
 		return nil, errors.New("发送失败: " + err.Error())
 	}
 	return &types.BaseResp{Message: "已发送到 " + u.Email}, nil

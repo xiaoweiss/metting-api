@@ -55,8 +55,15 @@ func (s *Sender) LoadSettings() (*Settings, error) {
 	}, nil
 }
 
-// Send 发送一封邮件。to 可以是多个地址。
-func (s *Sender) Send(to []string, subject, htmlBody string) error {
+// InlineImage 邮件正文 inline 嵌入的图片。
+// gomail.Embed 自动把 Content-ID 设为文件 basename,HTML 引用 <img src="cid:basename"> 即可。
+type InlineImage struct {
+	FilePath string // 本地绝对路径
+}
+
+// Send 发送一封邮件。to 可以是多个地址。inlineImages 为 nil/空则正常发,
+// 不为空时每个 image 用 gomail.Embed 嵌入(Content-ID = filename basename)。
+func (s *Sender) Send(to []string, subject, htmlBody string, inlineImages []InlineImage) error {
 	if len(to) == 0 {
 		return errors.New("收件人为空")
 	}
@@ -78,6 +85,9 @@ func (s *Sender) Send(to []string, subject, htmlBody string) error {
 	m.SetHeader("To", to...)
 	m.SetHeader("Subject", subject)
 	m.SetBody("text/html", htmlBody)
+	for _, img := range inlineImages {
+		m.Embed(img.FilePath)
+	}
 
 	d := gomail.NewDialer(settings.Host, settings.Port, settings.Username, settings.Password)
 	// 465 端口通常使用 SSL
