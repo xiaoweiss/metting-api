@@ -44,11 +44,20 @@ type FailItem struct {
 	Error string `json:"error"`
 }
 
+// missingKey 看板图缺失场景下,(酒店, 日期) 维度聚合受影响 recipient 数量
+type missingKey struct {
+	HotelId int64
+	Date    string
+}
+
 // sendBatch 给一组邮箱并发发模板邮件 + 落 email_logs。
 // 调用方负责传 emails 和 templateId；scheduleId 用来在 email_logs 里标记是哪个调度触发的（手动触发可传 0）。
 // source 只是日志前缀，用于区分调用来源。
 // hotelOverride > 0 时，所有收件人都按这家酒店渲染（邮件组发送 = group.hotel_id）；否则按各自 user.primary_hotel_id 决定。
-func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, scheduleId int64, source string, hotelOverride int64) (*model.EmailLog, error) {
+//
+// 模板里使用了 {{.DashboardImage}} 但当日 snapshot 缺失时,该 recipient 会被跳过(status=skipped),
+// 不阻塞其它 recipient;批结束后按 (酒店, 日期) 聚合一次钉钉群机器人提醒。
+func (e *Engine) sendBatch(ctx context.Context, emails []string, templateId, scheduleId int64, source string, hotelOverride int64) (*model.EmailLog, error) {
 	if len(emails) == 0 {
 		return nil, errors.New("收件人为空")
 	}
@@ -70,10 +79,18 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 
 	// 单封结果（顺序与 emails 对齐）
 	type result struct {
-		Email string
-		Err   string
+		Email   string
+		Err     string
+		Skipped bool
 	}
 	results := make([]result, len(emails))
+
+	// 看板图缺失聚合: (hotelId, date) → 受影响 recipient 数
+	missing := sync.Map{}
+
+	// 是否需要查 snapshot:仅当模板里用到 {{.DashboardImage}} 时才把 missing 当做 skip 处理。
+	// 没用变量的模板,即便 snapshot 找不到也照常发(向后兼容)。
+	needSnapshot := strings.Contains(tpl.Body, "{{.DashboardImage}}") || strings.Contains(tpl.Subject, "{{.DashboardImage}}")
 
 	var (
 		okCount int64
@@ -87,7 +104,19 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 		go func() {
 			defer func() { <-sem; wg.Done() }()
 			results[i].Email = addr
-			vars, inlineImages, _, _ := recipientVars(e.DB, e.Cfg, addr, now, hotelOverride)
+			vars, inlineImages, skipReason, hotelId := recipientVars(e.DB, e.Cfg, addr, now, hotelOverride)
+
+			// 看板图缺失 + 模板真的引用了:跳过该 recipient,聚合一次钉钉提醒
+			if needSnapshot && skipReason == SkipReasonSnapshotMissing {
+				dateStr, _ := vars["Date"].(string)
+				results[i].Skipped = true
+				results[i].Err = fmt.Sprintf("dashboard image missing for hotel=%d date=%s", hotelId, dateStr)
+				k := missingKey{HotelId: hotelId, Date: dateStr}
+				v, _ := missing.LoadOrStore(k, new(atomic.Int64))
+				v.(*atomic.Int64).Add(1)
+				return
+			}
+
 			subject, body, rerr := mail.RenderSubjectAndBody(tpl.Subject, tpl.Body, vars)
 			if rerr != nil {
 				results[i].Err = "模板渲染失败: " + rerr.Error()
@@ -102,6 +131,9 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 	}
 	wg.Wait()
 
+	// batch 结束:对 (hotelId, date) 维度的 missing 触发钉钉群机器人提醒(下次 task 8 wire-in)
+	e.notifyMissingHotels(ctx, &missing)
+
 	// 汇总失败列表（兼容老 fail_list）+ 准备 recipients 行
 	var fails []FailItem
 	for _, r := range results {
@@ -110,8 +142,16 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 		}
 	}
 
+	// "skipped" 不计入失败 fail_list,但走 partial/failed 状态判断时算"未成功"
+	skippedCount := 0
+	for _, r := range results {
+		if r.Skipped {
+			skippedCount++
+		}
+	}
+
 	status := "success"
-	if len(fails) > 0 {
+	if len(fails) > 0 || skippedCount > 0 {
 		if int(okCount) == 0 {
 			status = "failed"
 		} else {
@@ -140,7 +180,9 @@ func (e *Engine) sendBatch(_ context.Context, emails []string, templateId, sched
 		recipients := make([]model.EmailLogRecipient, 0, len(results))
 		for _, r := range results {
 			st := "sent"
-			if r.Err != "" {
+			if r.Skipped {
+				st = "skipped"
+			} else if r.Err != "" {
 				st = "failed"
 			}
 			recipients = append(recipients, model.EmailLogRecipient{
@@ -304,6 +346,10 @@ func (e *Engine) RetryAllFailed(ctx context.Context) ([]*model.EmailLog, error) 
 	}
 	return results, nil
 }
+
+// notifyMissingHotels 在 batch 结束后,按 (hotelId, date) 聚合发钉钉群机器人提醒。
+// 实现 + dedupe(24h)在 notify_missing.go(任务 8)。本方法是钩子,这里先空实现。
+func (e *Engine) notifyMissingHotels(_ context.Context, _ *sync.Map) {}
 
 func dedup(in []string) []string {
 	seen := map[string]struct{}{}
