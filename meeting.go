@@ -9,6 +9,7 @@ import (
 	"meeting/internal/handler"
 	"meeting/internal/model"
 	"meeting/internal/svc"
+	"meeting/pkg/blast"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -72,6 +73,14 @@ func main() {
 			if err := ctx.BlastScheduler.Start(bs.CronExpr); err != nil {
 				logx.Errorf("[Blast] 启动调度器失败: %v", err)
 			}
+		}
+	}
+
+	// 启动看板截图清理调度器(每天 03:00 删 30 天前的截图)
+	{
+		cs := blast.NewCleanupScheduler(ctx.DB, c)
+		if err := cs.Start(); err != nil {
+			logx.Errorf("[SnapshotCleanup] 启动失败: %v", err)
 		}
 	}
 
