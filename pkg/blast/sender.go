@@ -246,14 +246,14 @@ func (e *Engine) sendBatch(ctx context.Context, emails []string, templateId, sch
 	return &logRow, nil
 }
 
-// RunBlast 执行一次全员群发（cron 触发或手动触发都走这里）：
-//   - 拉 mail_blast_schedules.singleton 配置
+// RunBlastById 执行某条 schedule 的全员群发(cron 触发或手动触发都走这里)。
+//   - 按 schedule_id 拉配置
 //   - 30 秒防抖
 //   - 收件人 = users 里所有 active 且填了邮箱的人
-func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
+func (e *Engine) RunBlastById(ctx context.Context, scheduleId int64) (*model.EmailLog, error) {
 	var sch model.MailBlastSchedule
-	if err := e.DB.Where("lock_key = ?", "singleton").First(&sch).Error; err != nil {
-		return nil, fmt.Errorf("查询群发调度失败: %w", err)
+	if err := e.DB.First(&sch, scheduleId).Error; err != nil {
+		return nil, fmt.Errorf("查询群发调度 id=%d 失败: %w", scheduleId, err)
 	}
 	if sch.TemplateId == 0 {
 		return nil, errors.New("未选择邮件模板")
@@ -261,9 +261,9 @@ func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
 
 	now := time.Now()
 	if sch.LastRunAt != nil && now.Sub(*sch.LastRunAt) < minDebounce {
-		logx.Infof("[Blast] 防抖：上次发送 %s，距今 %s 不足 %s，跳过",
-			sch.LastRunAt.Format(time.RFC3339), now.Sub(*sch.LastRunAt), minDebounce)
-		return nil, fmt.Errorf("距上次发送不足 %s，已跳过", minDebounce)
+		logx.Infof("[Blast] schedule=%d 防抖:上次 %s,距今 %s 不足 %s,跳过",
+			scheduleId, sch.LastRunAt.Format(time.RFC3339), now.Sub(*sch.LastRunAt), minDebounce)
+		return nil, fmt.Errorf("距上次发送不足 %s,已跳过", minDebounce)
 	}
 
 	var emails []string
@@ -272,15 +272,19 @@ func (e *Engine) RunBlast(ctx context.Context) (*model.EmailLog, error) {
 		WHERE email <> '' AND status = 'active'
 	`).Scan(&emails)
 	if len(dedup(emails)) == 0 {
-		return nil, errors.New("没有可投递的收件人（users.email 全为空）")
+		return nil, errors.New("没有可投递的收件人(users.email 全为空)")
 	}
 
-	// 抢占 last_run_at —— 真正发送前先写，避免并发时两个调度都过了防抖检查
+	// 抢占 last_run_at —— 真正发送前先写,避免并发时两个调度都过了防抖检查
 	e.DB.Model(&model.MailBlastSchedule{}).
-		Where("lock_key = ?", "singleton").
+		Where("id = ?", scheduleId).
 		Update("last_run_at", now)
 
-	return e.sendBatch(ctx, emails, sch.TemplateId, sch.Id, "blast", 0)
+	source := fmt.Sprintf("blast:%d", scheduleId)
+	if sch.Name != "" {
+		source = fmt.Sprintf("blast:%d(%s)", scheduleId, sch.Name)
+	}
+	return e.sendBatch(ctx, emails, sch.TemplateId, sch.Id, source, 0)
 }
 
 // SendGroup 给一个邮件组的所有成员发模板邮件，立即触发（不走 cron）。

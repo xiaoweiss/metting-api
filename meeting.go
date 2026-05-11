@@ -66,14 +66,16 @@ func main() {
 		}
 	}
 
-	// 启动全员群发邮件调度器：只看 DB 配置（默认是 disabled）
+	// 启动全员群发邮件调度器:载入 DB 里所有 enabled=true 的 schedule,各自注册 cron entry
 	{
-		var bs model.MailBlastSchedule
-		if err := ctx.DB.Where("lock_key = ?", "singleton").First(&bs).Error; err == nil && bs.Enabled && bs.TemplateId > 0 {
-			if err := ctx.BlastScheduler.Start(bs.CronExpr); err != nil {
-				logx.Errorf("[Blast] 启动调度器失败: %v", err)
+		var rows []model.MailBlastSchedule
+		ctx.DB.Where("enabled = ? AND template_id > 0", true).Find(&rows)
+		for _, bs := range rows {
+			if err := ctx.BlastScheduler.Add(bs.Id, bs.CronExpr); err != nil {
+				logx.Errorf("[Blast] 加载调度 id=%d (%s) 失败: %v", bs.Id, bs.Name, err)
 			}
 		}
+		logx.Infof("[Blast] 启动加载 %d 条群发调度", len(rows))
 	}
 
 	// 启动看板截图清理调度器(每天 03:00 删 30 天前的截图)

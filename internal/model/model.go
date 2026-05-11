@@ -261,10 +261,10 @@ type UpdateCheckSchedule struct {
 
 func (UpdateCheckSchedule) TableName() string { return "update_check_schedules" }
 
-// MailBlastSchedule 全员群发邮件的 cron + 模板配置（单行表）
+// MailBlastSchedule 全员群发邮件的调度配置(多行支持,每行一个独立 cron + 模板)
 type MailBlastSchedule struct {
 	Id         int64      `gorm:"primaryKey;autoIncrement"`
-	LockKey    string     `gorm:"column:lock_key;size:32;uniqueIndex;default:singleton"`
+	Name       string     `gorm:"size:64;not null"` // 任务名,如「9am 看板图」
 	CronExpr   string     `gorm:"column:cron_expr;size:64;not null"`
 	TemplateId int64      `gorm:"column:template_id;not null"`
 	Enabled    bool       `gorm:"default:false"`

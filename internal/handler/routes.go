@@ -181,17 +181,27 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 				{
 					Method:  http.MethodGet,
-					Path:    "/api/admin/mail-blast/schedule",
-					Handler: admin.GetMailBlastScheduleHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPut,
-					Path:    "/api/admin/mail-blast/schedule",
-					Handler: admin.UpdateMailBlastScheduleHandler(serverCtx),
+					Path:    "/api/admin/mail-blast/schedules",
+					Handler: admin.ListMailBlastSchedulesHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodPost,
-					Path:    "/api/admin/mail-blast/trigger",
+					Path:    "/api/admin/mail-blast/schedules",
+					Handler: admin.CreateMailBlastScheduleHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPut,
+					Path:    "/api/admin/mail-blast/schedules/:id",
+					Handler: admin.UpdateMailBlastScheduleHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodDelete,
+					Path:    "/api/admin/mail-blast/schedules/:id",
+					Handler: admin.DeleteMailBlastScheduleHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/api/admin/mail-blast/schedules/:id/trigger",
 					Handler: admin.TriggerMailBlastHandler(serverCtx),
 				},
 				// Upload 移到非 admin 组(普通登录用户也能保存自己看的酒店截图)
