@@ -313,3 +313,18 @@ type DashboardSnapshot struct {
 }
 
 func (DashboardSnapshot) TableName() string { return "dashboard_snapshots" }
+
+// MailTemplateAttachment 邮件模板的静态附件,群发时全员收到同一份
+type MailTemplateAttachment struct {
+	Id           int64     `gorm:"primaryKey;autoIncrement"`
+	TemplateId   int64     `gorm:"column:template_id;not null;index"`
+	OriginalName string    `gorm:"column:original_name;size:255;not null"`
+	FilePath     string    `gorm:"column:file_path;size:255;not null"`
+	FileSize     int64     `gorm:"column:file_size"`
+	MimeType     string    `gorm:"column:mime_type;size:64;not null"`
+	Cid          string    `gorm:"size:128;not null"`
+	SortOrder    int       `gorm:"column:sort_order;default:0"`
+	UploadedAt   time.Time `gorm:"column:uploaded_at;autoCreateTime"`
+}
+
+func (MailTemplateAttachment) TableName() string { return "mail_template_attachments" }
