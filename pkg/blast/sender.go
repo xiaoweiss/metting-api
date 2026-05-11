@@ -140,9 +140,27 @@ func (e *Engine) sendBatch(ctx context.Context, emails []string, templateId, sch
 				results[i].Err = "模板渲染失败: " + rerr.Error()
 				return
 			}
-			// per-recipient inlineImages + 模板级 inline 合并;per-recipient PDF 附件 + 模板级附件 合并
-			mergedInline := append(append([]mail.InlineImage(nil), inlineImages...), tplInlineImages...)
-			mergedAtts := append(append([]mail.Attachment(nil), perRecipAtts...), tplAttachments...)
+			// per-recipient 资源按模板引用做过滤:模板没引用变量就不附进邮件,避免"附 PDF 时 PNG 也搭便车发"
+			effInline := []mail.InlineImage(nil)
+			if needImage {
+				effInline = inlineImages
+			}
+			effAtts := []mail.Attachment(nil)
+			if needPDF {
+				effAtts = perRecipAtts
+			}
+			// 模板级静态附件不受变量约束(那是用户在编辑器里手动挂的)
+			mergedInline := append(append([]mail.InlineImage(nil), effInline...), tplInlineImages...)
+			mergedAtts := append(append([]mail.Attachment(nil), effAtts...), tplAttachments...)
+			logx.Infof("[Blast.send] to=%s tpl_id=%d source=%s needImage=%v needPDF=%v → final inline=%d att=%d (perRecipPng=%d perRecipPdf=%d tplInline=%d tplAtt=%d)",
+				addr, templateId, source, needImage, needPDF, len(mergedInline), len(mergedAtts),
+				len(inlineImages), len(perRecipAtts), len(tplInlineImages), len(tplAttachments))
+			for _, im := range mergedInline {
+				logx.Infof("[Blast.send]   inline: %s", im.FilePath)
+			}
+			for _, at := range mergedAtts {
+				logx.Infof("[Blast.send]   attach: %s (%s)", at.FilePath, at.Filename)
+			}
 			if err := mailer.Send([]string{addr}, subject, body, mergedInline, mergedAtts); err != nil {
 				results[i].Err = err.Error()
 				return

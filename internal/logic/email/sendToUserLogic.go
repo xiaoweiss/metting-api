@@ -71,15 +71,28 @@ func (l *SendToUserLogic) SendToUser(req *types.SendToUserReq) (resp *types.Base
 		if err := l.svcCtx.DB.Where("name = ?", req.TemplateName).First(&tpl).Error; err != nil {
 			return nil, errors.New("模板不存在: " + req.TemplateName)
 		}
+		needImage := strings.Contains(tpl.Body, "{{.DashboardImage}}") || strings.Contains(tpl.Subject, "{{.DashboardImage}}")
+		needPDF := strings.Contains(tpl.Body, "{{.DashboardPDF}}") || strings.Contains(tpl.Subject, "{{.DashboardPDF}}")
+		logx.Infof("[TestSend] template=%s tpl_id=%d to=%s req.HotelId=%d needImage=%v needPDF=%v",
+			tpl.Name, tpl.Id, userEmail, req.HotelId, needImage, needPDF)
+
 		// 跟群发链路一致:走 RecipientVars,自动按对标酒店当日数据 +
 		// DashboardImage(PNG inline) + DashboardPDF(PDF 附件) 装配
-		vars, inl, att, _, _, _ := blast.RecipientVars(l.svcCtx.DB, l.svcCtx.Config, userEmail, time.Now(), req.HotelId)
+		vars, inl, att, pngFound, pdfFound, hotelId := blast.RecipientVars(l.svcCtx.DB, l.svcCtx.Config, userEmail, time.Now(), req.HotelId)
+		logx.Infof("[TestSend] RecipientVars → hotelId=%d pngFound=%v pdfFound=%v inlineImages=%d attachments=%d HotelName=%v DashboardImage=%v",
+			hotelId, pngFound, pdfFound, len(inl), len(att), vars["HotelName"], vars["DashboardImage"])
+
 		// 测试发送时,UserName 兜底
 		if v, _ := vars["UserName"].(string); v == "" || v == userEmail {
 			vars["UserName"] = u.Name
 		}
-		inlineImages = inl
-		attachments = att
+		// 跟群发链路一致:模板没引用对应变量就不附进邮件
+		if needImage {
+			inlineImages = inl
+		}
+		if needPDF {
+			attachments = att
+		}
 		subject, body, err = pkgmail.RenderSubjectAndBody(tpl.Subject, tpl.Body, vars)
 		if err != nil {
 			return nil, err
@@ -96,6 +109,7 @@ func (l *SendToUserLogic) SendToUser(req *types.SendToUserReq) (resp *types.Base
 				attachments = append(attachments, pkgmail.Attachment{FilePath: abs, Filename: a.OriginalName})
 			}
 		}
+		logx.Infof("[TestSend] 模板静态附件: %d 个;最终发送 inline=%d attach=%d", len(atts), len(inlineImages), len(attachments))
 	} else {
 		subject = "【测试邮件】会议室运营平台"
 		body = `<div style="font-family:sans-serif;padding:24px">
