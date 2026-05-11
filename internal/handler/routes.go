@@ -209,6 +209,21 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/admin/snapshots/:year/:month/:filename",
 					Handler: admin.ServeDashboardSnapshotHandler(serverCtx),
 				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/api/admin/mail-templates/:id/attachments",
+					Handler: admin.UploadMailTemplateAttachmentHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/api/admin/mail-templates/:id/attachments",
+					Handler: admin.ListMailTemplateAttachmentsHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodDelete,
+					Path:    "/api/admin/mail-templates/:id/attachments/:attId",
+					Handler: admin.DeleteMailTemplateAttachmentHandler(serverCtx),
+				},
 			}...,
 		),
 	)
