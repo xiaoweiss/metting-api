@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -79,6 +80,9 @@ func (e *Engine) sendBatch(ctx context.Context, emails []string, templateId, sch
 	// 不在这里预渲染 subject/body —— 每个收件人有自己的酒店/出租率，
 	// 进 goroutine 后用 recipientVars 各自装配 + 渲染。
 
+	// 加载模板静态附件(per-template,所有收件人共享)
+	tplInlineImages, tplAttachments := e.loadTemplateAttachments(templateId)
+
 	// 单封结果（顺序与 emails 对齐）
 	type result struct {
 		Email   string
@@ -124,7 +128,9 @@ func (e *Engine) sendBatch(ctx context.Context, emails []string, templateId, sch
 				results[i].Err = "模板渲染失败: " + rerr.Error()
 				return
 			}
-			if err := mailer.Send([]string{addr}, subject, body, inlineImages); err != nil {
+			// 把模板级附件追加到 per-recipient inlineImages 后面
+			mergedInline := append(append([]mail.InlineImage(nil), inlineImages...), tplInlineImages...)
+			if err := mailer.Send([]string{addr}, subject, body, mergedInline, tplAttachments); err != nil {
 				results[i].Err = err.Error()
 				return
 			}
@@ -347,6 +353,27 @@ func (e *Engine) RetryAllFailed(ctx context.Context) ([]*model.EmailLog, error) 
 		results = append(results, newLog)
 	}
 	return results, nil
+}
+
+// loadTemplateAttachments 拉模板挂载的静态附件并按 mime 分流:
+// 图片 (image/*) 进 inlineImages(Embed,cid 可被 HTML 引用);其它(PDF / 文档)进 attachments(Attach 附件区)。
+func (e *Engine) loadTemplateAttachments(templateId int64) ([]mail.InlineImage, []mail.Attachment) {
+	var rows []model.MailTemplateAttachment
+	if err := e.DB.Where("template_id = ?", templateId).Order("sort_order, id").Find(&rows).Error; err != nil {
+		logx.Errorf("[Blast] 加载模板附件失败 templateId=%d: %v", templateId, err)
+		return nil, nil
+	}
+	var inlines []mail.InlineImage
+	var atts []mail.Attachment
+	for _, r := range rows {
+		abs := filepath.Join(e.Cfg.Mail.AttachmentDir, r.FilePath)
+		if strings.HasPrefix(r.MimeType, "image/") {
+			inlines = append(inlines, mail.InlineImage{FilePath: abs})
+		} else {
+			atts = append(atts, mail.Attachment{FilePath: abs, Filename: r.OriginalName})
+		}
+	}
+	return inlines, atts
 }
 
 func dedup(in []string) []string {

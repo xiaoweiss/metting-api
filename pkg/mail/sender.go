@@ -61,9 +61,16 @@ type InlineImage struct {
 	FilePath string // 本地绝对路径
 }
 
-// Send 发送一封邮件。to 可以是多个地址。inlineImages 为 nil/空则正常发,
-// 不为空时每个 image 用 gomail.Embed 嵌入(Content-ID = filename basename)。
-func (s *Sender) Send(to []string, subject, htmlBody string, inlineImages []InlineImage) error {
+// Attachment 邮件附件(非 inline),收件人在客户端附件区看到。
+type Attachment struct {
+	FilePath string // 本地绝对路径
+	Filename string // 在邮件里显示的文件名(默认 = basename)
+}
+
+// Send 发送一封邮件。to 可以是多个地址。
+// inlineImages 用 gomail.Embed 嵌入(Content-ID = filename basename),HTML 可 <img src="cid:..."> 引用。
+// attachments 用 gomail.Attach 当附件,Content-Disposition: attachment。
+func (s *Sender) Send(to []string, subject, htmlBody string, inlineImages []InlineImage, attachments []Attachment) error {
 	if len(to) == 0 {
 		return errors.New("收件人为空")
 	}
@@ -87,6 +94,13 @@ func (s *Sender) Send(to []string, subject, htmlBody string, inlineImages []Inli
 	m.SetBody("text/html", htmlBody)
 	for _, img := range inlineImages {
 		m.Embed(img.FilePath)
+	}
+	for _, att := range attachments {
+		if att.Filename != "" && att.Filename != att.FilePath {
+			m.Attach(att.FilePath, gomail.Rename(att.Filename))
+		} else {
+			m.Attach(att.FilePath)
+		}
 	}
 
 	d := gomail.NewDialer(settings.Host, settings.Port, settings.Username, settings.Password)
