@@ -47,10 +47,12 @@ type FailItem struct {
 	Error string `json:"error"`
 }
 
-// missingKey 看板图缺失场景下,(酒店, 日期) 维度聚合受影响 recipient 数量
+// missingKey 看板图缺失场景下,(酒店, 日期, 类型) 维度聚合受影响 recipient 数量
+// Kind: "image" / "pdf" / "both" —— 用于钉钉提醒文案区分
 type missingKey struct {
 	HotelId int64
 	Date    string
+	Kind    string
 }
 
 // sendBatch 给一组邮箱并发发模板邮件 + 落 email_logs。
@@ -91,12 +93,13 @@ func (e *Engine) sendBatch(ctx context.Context, emails []string, templateId, sch
 	}
 	results := make([]result, len(emails))
 
-	// 看板图缺失聚合: (hotelId, date) → 受影响 recipient 数
+	// 看板缺失聚合: (hotelId, date, kind) → 受影响 recipient 数
 	missing := sync.Map{}
 
-	// 是否需要查 snapshot:仅当模板里用到 {{.DashboardImage}} 时才把 missing 当做 skip 处理。
+	// 是否需要 snapshot:模板里用到对应变量才把 missing 当做 skip 处理。
 	// 没用变量的模板,即便 snapshot 找不到也照常发(向后兼容)。
-	needSnapshot := strings.Contains(tpl.Body, "{{.DashboardImage}}") || strings.Contains(tpl.Subject, "{{.DashboardImage}}")
+	needImage := strings.Contains(tpl.Body, "{{.DashboardImage}}") || strings.Contains(tpl.Subject, "{{.DashboardImage}}")
+	needPDF := strings.Contains(tpl.Body, "{{.DashboardPDF}}") || strings.Contains(tpl.Subject, "{{.DashboardPDF}}")
 
 	var (
 		okCount int64
@@ -110,14 +113,23 @@ func (e *Engine) sendBatch(ctx context.Context, emails []string, templateId, sch
 		go func() {
 			defer func() { <-sem; wg.Done() }()
 			results[i].Email = addr
-			vars, inlineImages, skipReason, hotelId := recipientVars(e.DB, e.Cfg, addr, now, hotelOverride)
+			vars, inlineImages, perRecipAtts, pngFound, pdfFound, hotelId := recipientVars(e.DB, e.Cfg, addr, now, hotelOverride)
 
-			// 看板图缺失 + 模板真的引用了:跳过该 recipient,聚合一次钉钉提醒
-			if needSnapshot && skipReason == SkipReasonSnapshotMissing {
+			// 计算缺失:模板真的引用了 + 服务器没找到 → skip + 聚合钉钉提醒
+			imgMiss := needImage && !pngFound
+			pdfMiss := needPDF && !pdfFound
+			if imgMiss || pdfMiss {
 				dateStr, _ := vars["Date"].(string)
+				kind := "image"
+				switch {
+				case imgMiss && pdfMiss:
+					kind = "both"
+				case pdfMiss:
+					kind = "pdf"
+				}
 				results[i].Skipped = true
-				results[i].Err = fmt.Sprintf("dashboard image missing for hotel=%d date=%s", hotelId, dateStr)
-				k := missingKey{HotelId: hotelId, Date: dateStr}
+				results[i].Err = fmt.Sprintf("dashboard %s missing for hotel=%d date=%s", kind, hotelId, dateStr)
+				k := missingKey{HotelId: hotelId, Date: dateStr, Kind: kind}
 				v, _ := missing.LoadOrStore(k, new(atomic.Int64))
 				v.(*atomic.Int64).Add(1)
 				return
@@ -128,9 +140,10 @@ func (e *Engine) sendBatch(ctx context.Context, emails []string, templateId, sch
 				results[i].Err = "模板渲染失败: " + rerr.Error()
 				return
 			}
-			// 把模板级附件追加到 per-recipient inlineImages 后面
+			// per-recipient inlineImages + 模板级 inline 合并;per-recipient PDF 附件 + 模板级附件 合并
 			mergedInline := append(append([]mail.InlineImage(nil), inlineImages...), tplInlineImages...)
-			if err := mailer.Send([]string{addr}, subject, body, mergedInline, tplAttachments); err != nil {
+			mergedAtts := append(append([]mail.Attachment(nil), perRecipAtts...), tplAttachments...)
+			if err := mailer.Send([]string{addr}, subject, body, mergedInline, mergedAtts); err != nil {
 				results[i].Err = err.Error()
 				return
 			}

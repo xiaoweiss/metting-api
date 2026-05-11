@@ -16,7 +16,9 @@ import (
 
 // SkipReason 渲染阶段表达"跳过该 recipient"的原因
 const (
-	SkipReasonSnapshotMissing = "snapshot_missing"
+	SkipReasonSnapshotMissing = "snapshot_missing" // 兼容旧调用方,等价于 image_missing
+	SkipReasonImageMissing    = "image_missing"
+	SkipReasonPDFMissing      = "pdf_missing"
 )
 
 // recipientVars 按 email 装配模板变量。所有动态字段都是字符串，没数据时填 "—"。
@@ -25,23 +27,21 @@ const (
 // 否则按收件人 users.primary_hotel_id 取；都没有的话 fallback 到关联酒店里第一家有 venue 的。
 //
 // 返回值:
-//   - vars: 模板变量,包括 {{.DashboardImage}}(命中时是 "cid:basename",未命中是空串)
-//   - inlineImages: 命中 snapshot 时本邮件需要 Embed 的图片列表
-//   - skipReason: 非空字符串表示该 recipient 应被跳过(目前只有 snapshot_missing)
+//   - vars: 模板变量,包括 {{.DashboardImage}} / {{.DashboardPDF}}
+//   - inlineImages: 命中 PNG snapshot 时本邮件需要 Embed 的图片列表
+//   - attachments: 命中 PDF snapshot 时本邮件需要 Attach 的附件列表
+//   - pngFound / pdfFound: 当日是否找到对应格式的 snapshot(供调用方决定是否 skip)
 //   - hotelId: 解析出来的对标酒店 id(可能是 0)
 //
+// skip 由调用方根据模板内容决定:模板用了 {{.DashboardImage}} 但 !pngFound → skip
+//                              模板用了 {{.DashboardPDF}} 但 !pdfFound → skip
+//
 // 模板里能用的变量:
-//   - {{.Date}}            报告日期 YYYY-MM-DD (Asia/Shanghai)
-//   - {{.Time}}            发送时间 HH:MM
-//   - {{.UserName}}        收件人姓名
-//   - {{.HotelName}}       对标酒店名
-//   - {{.OccupancyRate}}   该酒店当日综合出租率
-//   - {{.AM}}              上午出租率
-//   - {{.PM}}              下午出租率
-//   - {{.CompRate}}        竞对群当日均值
-//   - {{.MarketRate}}      商圈当日均值
+//   - {{.Date}} / {{.Time}} / {{.UserName}} / {{.HotelName}} / {{.OccupancyRate}}
+//   - {{.AM}} / {{.PM}} / {{.CompRate}} / {{.MarketRate}}
 //   - {{.HotelRate}} / {{.MorningRate}} / {{.AfternoonRate}} / {{.CompetitorRate}}: 兼容旧名
-//   - {{.DashboardImage}}  本月日历图 cid 引用,模板里 <img src="{{.DashboardImage}}">
+//   - {{.DashboardImage}}: 本月日历 PNG 的 cid 引用,正文里 <img src="{{.DashboardImage}}">
+//   - {{.DashboardPDF}}: 占位空串;模板里出现这个变量 → 系统自动当附件附上当日 PDF
 func recipientVars(
 	db *gorm.DB,
 	cfg config.Config,
@@ -51,7 +51,9 @@ func recipientVars(
 ) (
 	vars map[string]interface{},
 	inlineImages []mail.InlineImage,
-	skipReason string,
+	attachments []mail.Attachment,
+	pngFound bool,
+	pdfFound bool,
 	hotelId int64,
 ) {
 	loc, _ := time.LoadLocation("Asia/Shanghai")
@@ -72,6 +74,7 @@ func recipientVars(
 		"AfternoonRate":  "—",
 		"CompetitorRate": "—",
 		"DashboardImage": "",
+		"DashboardPDF":   "", // 占位空串;出现在模板里就是触发器
 	}
 
 	// 1) email → user(拿 UserName + primary_hotel_id)
@@ -80,9 +83,7 @@ func recipientVars(
 		if hotelOverride > 0 {
 			fillHotelVars(db, vars, hotelOverride, dateStr)
 			hotelId = hotelOverride
-			loadDashboardImage(db, cfg, vars, &inlineImages, &skipReason, hotelId, dateStr, loc)
-		} else {
-			skipReason = SkipReasonSnapshotMissing
+			loadDashboardSnapshots(db, cfg, vars, &inlineImages, &attachments, &pngFound, &pdfFound, hotelId, dateStr, loc)
 		}
 		return
 	}
@@ -109,45 +110,48 @@ func recipientVars(
 		}
 	}
 	if hotelId == 0 {
-		skipReason = SkipReasonSnapshotMissing
 		return
 	}
 
 	fillHotelVars(db, vars, hotelId, dateStr)
-	loadDashboardImage(db, cfg, vars, &inlineImages, &skipReason, hotelId, dateStr, loc)
+	loadDashboardSnapshots(db, cfg, vars, &inlineImages, &attachments, &pngFound, &pdfFound, hotelId, dateStr, loc)
 	return
 }
 
-// loadDashboardImage 查 (hotelId, date, occupancy, png) 的 snapshot,命中则填 vars + inlineImages,
-// 未命中设置 skipReason = snapshot_missing。
-func loadDashboardImage(
+// loadDashboardSnapshots 同时查 PNG 和 PDF 两种 format 的当日 snapshot,各自填到 inlineImages / attachments。
+func loadDashboardSnapshots(
 	db *gorm.DB,
 	cfg config.Config,
 	vars map[string]interface{},
 	inlineImages *[]mail.InlineImage,
-	skipReason *string,
+	attachments *[]mail.Attachment,
+	pngFound *bool,
+	pdfFound *bool,
 	hotelId int64,
 	dateStr string,
 	loc *time.Location,
 ) {
 	snapDate, err := time.ParseInLocation("2006-01-02", dateStr, loc)
 	if err != nil {
-		*skipReason = SkipReasonSnapshotMissing
 		return
 	}
-	var snap model.DashboardSnapshot
-	res := db.Where(
-		"hotel_id = ? AND snapshot_date = ? AND mode = ? AND format = ?",
-		hotelId, snapDate, "occupancy", "png",
-	).First(&snap)
-	if res.Error != nil || snap.Id == 0 {
-		*skipReason = SkipReasonSnapshotMissing
-		return
+	var snaps []model.DashboardSnapshot
+	db.Where("hotel_id = ? AND snapshot_date = ? AND mode = ?", hotelId, snapDate, "occupancy").
+		Where("format IN ?", []string{"png", "pdf"}).
+		Find(&snaps)
+	for _, s := range snaps {
+		abs := filepath.Join(cfg.Mail.SnapshotDir, s.FilePath)
+		base := filepath.Base(s.FilePath)
+		switch s.Format {
+		case "png":
+			vars["DashboardImage"] = "cid:" + base
+			*inlineImages = append(*inlineImages, mail.InlineImage{FilePath: abs})
+			*pngFound = true
+		case "pdf":
+			*attachments = append(*attachments, mail.Attachment{FilePath: abs, Filename: base})
+			*pdfFound = true
+		}
 	}
-	cid := filepath.Base(snap.FilePath)
-	vars["DashboardImage"] = "cid:" + cid
-	abs := filepath.Join(cfg.Mail.SnapshotDir, snap.FilePath)
-	*inlineImages = append(*inlineImages, mail.InlineImage{FilePath: abs})
 }
 
 // fillHotelVars 给定 hotelId + 日期，把酒店相关变量填到 vars。
