@@ -42,6 +42,24 @@ const (
 //   - {{.HotelRate}} / {{.MorningRate}} / {{.AfternoonRate}} / {{.CompetitorRate}}: 兼容旧名
 //   - {{.DashboardImage}}: 本月日历 PNG 的 cid 引用,正文里 <img src="{{.DashboardImage}}">
 //   - {{.DashboardPDF}}: 占位空串;模板里出现这个变量 → 系统自动当附件附上当日 PDF
+// RecipientVars 是 recipientVars 的导出别名,供 blast 包外调用(如测试发送 logic)。
+func RecipientVars(
+	db *gorm.DB,
+	cfg config.Config,
+	email string,
+	when time.Time,
+	hotelOverride int64,
+) (
+	vars map[string]interface{},
+	inlineImages []mail.InlineImage,
+	attachments []mail.Attachment,
+	pngFound bool,
+	pdfFound bool,
+	hotelId int64,
+) {
+	return recipientVars(db, cfg, email, when, hotelOverride)
+}
+
 func recipientVars(
 	db *gorm.DB,
 	cfg config.Config,
