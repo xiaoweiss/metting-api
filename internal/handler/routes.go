@@ -194,11 +194,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/api/admin/mail-blast/trigger",
 					Handler: admin.TriggerMailBlastHandler(serverCtx),
 				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/admin/dashboard-snapshots",
-					Handler: admin.UploadDashboardSnapshotHandler(serverCtx),
-				},
+				// Upload 移到非 admin 组(普通登录用户也能保存自己看的酒店截图)
 				{
 					Method:  http.MethodGet,
 					Path:    "/api/admin/dashboard-snapshots",
@@ -256,6 +252,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodGet,
 					Path:    "/api/auth/me",
 					Handler: dashboard.GetMeHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/api/admin/dashboard-snapshots",
+					Handler: admin.UploadDashboardSnapshotHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodGet,
