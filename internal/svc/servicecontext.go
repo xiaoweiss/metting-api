@@ -33,8 +33,10 @@ type ServiceContext struct {
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
+	// GORM 默认 Info 会打所有 SQL,sync 每 30s 跑上千条 SQL 把日志撑爆磁盘(已发生过)。
+	// 改成 Warn:只打慢查询 + 错误,正常 SQL 不再刷屏。
 	db, err := gorm.Open(mysql.Open(c.DB.DSN), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(logger.Warn),
 	})
 	if err != nil {
 		panic(fmt.Sprintf("连接数据库失败: %v", err))
