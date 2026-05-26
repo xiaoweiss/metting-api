@@ -106,45 +106,53 @@ func CreateMailBlastScheduleHandler(svcCtx *svc.ServiceContext) http.HandlerFunc
 // UpdateMailBlastScheduleHandler PUT /api/admin/mail-blast/schedules/:id
 func UpdateMailBlastScheduleHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var path struct {
-			Id int64 `path:"id"`
+		// 单次 Parse 把 path + json body 一起解,避免 body 被消费两次
+		var req struct {
+			Id         int64  `path:"id"`
+			Name       string `json:"name"`
+			CronExpr   string `json:"cronExpr"`
+			TemplateId int64  `json:"templateId"`
+			Enabled    bool   `json:"enabled"`
 		}
-		if err := httpx.Parse(r, &path); err != nil || path.Id == 0 {
-			http.Error(w, "id 非法", http.StatusBadRequest)
+		if err := httpx.Parse(r, &req); err != nil || req.Id == 0 {
+			http.Error(w, "请求非法: "+errOrEmpty(err), http.StatusBadRequest)
 			return
 		}
-		var req mailBlastScheduleReq
-		if err := httpx.Parse(r, &req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if err := validateBlastReq(svcCtx, &req); err != nil {
+		body := mailBlastScheduleReq{Name: req.Name, CronExpr: req.CronExpr, TemplateId: req.TemplateId, Enabled: req.Enabled}
+		if err := validateBlastReq(svcCtx, &body); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		// 同步调度器:启用 → Add(覆盖旧 entry);禁用 → Remove
-		if req.Enabled {
-			if err := svcCtx.BlastScheduler.Add(path.Id, req.CronExpr); err != nil {
+		if body.Enabled {
+			if err := svcCtx.BlastScheduler.Add(req.Id, body.CronExpr); err != nil {
 				http.Error(w, "cron 表达式无效: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 		} else {
-			svcCtx.BlastScheduler.Remove(path.Id)
+			svcCtx.BlastScheduler.Remove(req.Id)
 		}
 
 		updates := map[string]interface{}{
-			"name":        req.Name,
-			"cron_expr":   req.CronExpr,
-			"template_id": req.TemplateId,
-			"enabled":     req.Enabled,
+			"name":        body.Name,
+			"cron_expr":   body.CronExpr,
+			"template_id": body.TemplateId,
+			"enabled":     body.Enabled,
 		}
-		if err := svcCtx.DB.Model(&model.MailBlastSchedule{}).Where("id = ?", path.Id).Updates(updates).Error; err != nil {
+		if err := svcCtx.DB.Model(&model.MailBlastSchedule{}).Where("id = ?", req.Id).Updates(updates).Error; err != nil {
 			http.Error(w, "更新失败: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		httpx.OkJsonCtx(r.Context(), w, map[string]interface{}{"id": path.Id})
+		httpx.OkJsonCtx(r.Context(), w, map[string]interface{}{"id": req.Id})
 	}
+}
+
+func errOrEmpty(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // DeleteMailBlastScheduleHandler DELETE /api/admin/mail-blast/schedules/:id

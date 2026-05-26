@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/gorm"
 
 	"meeting/internal/config"
@@ -151,15 +152,18 @@ func loadDashboardSnapshots(
 ) {
 	snapDate, err := time.ParseInLocation("2006-01-02", dateStr, loc)
 	if err != nil {
+		logx.Errorf("[RecipientVars] snapshot date 解析失败 dateStr=%s: %v", dateStr, err)
 		return
 	}
 	var snaps []model.DashboardSnapshot
-	db.Where("hotel_id = ? AND snapshot_date = ? AND mode = ?", hotelId, snapDate, "occupancy").
+	tx := db.Where("hotel_id = ? AND snapshot_date = ? AND mode = ?", hotelId, snapDate, "occupancy").
 		Where("format IN ?", []string{"png", "pdf"}).
 		Find(&snaps)
+	logx.Infof("[RecipientVars] 查 snapshot hotelId=%d date=%s mode=occupancy → %d 条 (err=%v)", hotelId, dateStr, len(snaps), tx.Error)
 	for _, s := range snaps {
 		abs := filepath.Join(cfg.Mail.SnapshotDir, s.FilePath)
 		base := filepath.Base(s.FilePath)
+		logx.Infof("[RecipientVars]   → id=%d format=%s file=%s", s.Id, s.Format, abs)
 		switch s.Format {
 		case "png":
 			vars["DashboardImage"] = "cid:" + base
