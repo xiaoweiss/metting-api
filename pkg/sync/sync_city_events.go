@@ -14,7 +14,7 @@ import (
 // 字段名含英文括号注释，必须完全匹配（钉钉返回的 key 是带括号的全名）
 //   - 城市活动名称（CityEvent_Name）
 //   - 城市活动类型（CityEvent_Type）
-//   - 场馆具体名称（Venue_Name）
+//   - 城市活动地址（CityEvent_Location）  场馆/地址,旧列名「场馆具体名称（Venue_Name）」
 //   - 城市活动起始时间（CityEvent_Start Date）
 //   - 城市活动截止时间（CityEvent_End Date）
 func (e *Engine) syncCityEvents(ctx context.Context) error {
@@ -51,7 +51,12 @@ func (e *Engine) syncCityEvents(ctx context.Context) error {
 			continue
 		}
 		eventType := singleSelectName(row, "城市活动类型（CityEvent_Type）")
-		venueName := textField(row, "场馆具体名称（Venue_Name）")
+		// 钉钉把场馆列名从「场馆具体名称（Venue_Name）」改成了「城市活动地址（CityEvent_Location）」,
+		// 新列名优先,兼容旧列名兜底
+		venueName := textField(row, "城市活动地址（CityEvent_Location）")
+		if venueName == "" {
+			venueName = textField(row, "场馆具体名称（Venue_Name）")
+		}
 		startAt := dateField(row, "城市活动起始时间（CityEvent_Start Date）")
 		endAt := dateField(row, "城市活动截止时间（CityEvent_End Date）")
 

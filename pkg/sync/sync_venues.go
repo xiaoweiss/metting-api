@@ -42,14 +42,26 @@ func (e *Engine) syncVenues(ctx context.Context, recordIdToHotelId map[string]in
 
 		// 解析酒店关联
 		hotelRecordIds := linkedRecordIds(row, "选择酒店")
-		if len(hotelRecordIds) == 0 {
-			logx.Infof("[syncVenues] %s 无酒店关联，跳过", venueName)
-			continue
+		var hotelId int64
+		var exists bool
+		if len(hotelRecordIds) > 0 {
+			hotelId, exists = recordIdToHotelId[hotelRecordIds[0]]
 		}
-
-		hotelId, exists := recordIdToHotelId[hotelRecordIds[0]]
+		// 兜底:如果 recordId 找不到(钉钉重建过酒店行,recordId 变了但会议室还指着旧 id),
+		// 用会议室行里的「酒店名称 Hotel Name」(linked field, name 部分)匹配酒店 name
 		if !exists {
-			logx.Infof("[syncVenues] %s 酒店 recordId=%s 未找到，跳过", venueName, hotelRecordIds[0])
+			hotelName := linkedRecordName(row, "酒店名称 Hotel Name")
+			if hotelName != "" {
+				var fallback model.Hotel
+				if err := e.db.Where("name = ?", hotelName).First(&fallback).Error; err == nil && fallback.Id > 0 {
+					hotelId = fallback.Id
+					exists = true
+					logx.Infof("[syncVenues] %s 走名字兜底匹配酒店 '%s' (recordId=%v 未在 hotels 里)", venueName, hotelName, hotelRecordIds)
+				}
+			}
+		}
+		if !exists {
+			logx.Infof("[syncVenues] %s 酒店 recordId=%v 未找到 + 名字兜底也失败，跳过", venueName, hotelRecordIds)
 			continue
 		}
 

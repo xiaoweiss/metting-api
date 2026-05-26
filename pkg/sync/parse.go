@@ -94,6 +94,25 @@ func linkedRecordId(row dingtalk.SheetRow, key string) string {
 	return ""
 }
 
+// linkedRecordName 提取单值关联字段的 name 部分
+// 兼容两种 API 格式:
+//   - {"id": "xxx", "name": "yyy"}                  (Daily Data 里 Room Name / Hotel Name)
+//   - {"linkedRecordIds": ["xxx"], "name": "yyy"}   (酒店会议室信息表里「选择酒店」)
+func linkedRecordName(row dingtalk.SheetRow, key string) string {
+	v, ok := row[key]
+	if !ok || v == nil {
+		return ""
+	}
+	m, ok := v.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	if name, ok := m["name"].(string); ok && name != "" {
+		return name
+	}
+	return ""
+}
+
 // linkedRecordIds 提取关联字段的 recordId 列表
 // API 格式: {"linkedRecordIds": ["abc", "def"]}
 func linkedRecordIds(row dingtalk.SheetRow, key string) []string {
