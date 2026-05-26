@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/datatypes"
+)
 
 type User struct {
 	Id              int64  `gorm:"primaryKey;autoIncrement"`
@@ -150,10 +154,10 @@ type ColorThreshold struct {
 func (ColorThreshold) TableName() string { return "color_thresholds" }
 
 type EmailGroup struct {
-	Id        int64     `gorm:"primaryKey;autoIncrement"`
-	Name      string    `gorm:"size:128;not null"`
-	HotelId   int64
-	Scene     string    `gorm:"size:64"`
+	Id        int64                       `gorm:"primaryKey;autoIncrement"`
+	Name      string                      `gorm:"size:128;not null"`
+	HotelIds  datatypes.JSONSlice[int64]  `gorm:"column:hotel_ids;type:json;not null"` // 多酒店：发送时按每个 hotelId 各发一封；空数组表示未关联酒店(发送时报错)
+	Scene     string                      `gorm:"size:64"`
 	CreatedAt time.Time
 }
 
