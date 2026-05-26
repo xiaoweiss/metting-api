@@ -55,7 +55,7 @@ func (l *ListEmailLogsLogic) ListEmailLogs(req *types.EmailLogListReq) (resp *ty
 		if lg.TemplateId > 0 {
 			tplIds[lg.TemplateId] = struct{}{}
 		}
-		if id, ok := parseGroupIdFromSource(lg.Source); ok {
+		if id, _, ok := parseGroupIdFromSource(lg.Source); ok {
 			groupIds[id] = struct{}{}
 		}
 	}
@@ -107,15 +107,25 @@ func (l *ListEmailLogsLogic) ListEmailLogs(req *types.EmailLogListReq) (resp *ty
 	return resp, nil
 }
 
-func parseGroupIdFromSource(src string) (int64, bool) {
+// parseGroupIdFromSource 解析 source。
+// 新格式: "group:7|苏州万豪"      (多酒店,每家一封)
+// 旧格式: "group:7"               (单酒店,迁移前的历史日志)
+// 返回 (groupId, hotelName, ok)
+func parseGroupIdFromSource(src string) (int64, string, bool) {
 	if !strings.HasPrefix(src, "group:") {
-		return 0, false
+		return 0, "", false
 	}
-	id, err := strconv.ParseInt(strings.TrimPrefix(src, "group:"), 10, 64)
+	body := strings.TrimPrefix(src, "group:")
+	hotelName := ""
+	if i := strings.Index(body, "|"); i >= 0 {
+		hotelName = body[i+1:]
+		body = body[:i]
+	}
+	id, err := strconv.ParseInt(body, 10, 64)
 	if err != nil {
-		return 0, false
+		return 0, "", false
 	}
-	return id, true
+	return id, hotelName, true
 }
 
 func sourceLabel(src string, groupName map[int64]string) string {
@@ -127,11 +137,17 @@ func sourceLabel(src string, groupName map[int64]string) string {
 	case src == "manual":
 		return "手动发送"
 	case strings.HasPrefix(src, "group:"):
-		if id, ok := parseGroupIdFromSource(src); ok {
-			if name := groupName[id]; name != "" {
-				return "邮件组：" + name
+		if id, hotelName, ok := parseGroupIdFromSource(src); ok {
+			gn := groupName[id]
+			if gn == "" {
+				gn = "邮件组 #" + strconv.FormatInt(id, 10)
+			} else {
+				gn = "邮件组：" + gn
 			}
-			return "邮件组 #" + strconv.FormatInt(id, 10)
+			if hotelName != "" {
+				return gn + " · " + hotelName
+			}
+			return gn
 		}
 	case strings.HasPrefix(src, "retry:"):
 		return "重发 #" + strings.TrimPrefix(src, "retry:")

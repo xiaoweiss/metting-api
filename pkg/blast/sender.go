@@ -288,13 +288,18 @@ func (e *Engine) RunBlastById(ctx context.Context, scheduleId int64) (*model.Ema
 }
 
 // SendGroup 给一个邮件组的所有成员发模板邮件，立即触发（不走 cron）。
-// 用 group.hotel_id 作为模板渲染的对标酒店（覆盖收件人各自的 primary_hotel_id），
-// 这样"金鸡湖万豪对接组"发出的邮件不论谁收到，HotelName / 出租率 都是金鸡湖万豪的。
+// 邮件组支持多酒店(HotelIds JSON 数组),按每个 hotelId 各跑一次 sendBatch:
+// N 收件人 × M 酒店 = N×M 封,每家酒店 HotelName / 出租率 / 图等各自渲染。
+// source 形如 "group:7|苏州万豪",前端日志解析后展示「邮件组：品牌组A · 苏州万豪」。
 // 异步：调用方在 goroutine 里发，但本函数本身是同步的（每封邮件内部并发）。
+// 返回第一家成功的 EmailLog 给前端做"已开始异步发送"提示;后续 hotelId 失败 continue 不阻塞。
 func (e *Engine) SendGroup(ctx context.Context, groupId, templateId int64) (*model.EmailLog, error) {
 	var grp model.EmailGroup
 	if err := e.DB.First(&grp, groupId).Error; err != nil {
 		return nil, fmt.Errorf("邮件组不存在: %w", err)
+	}
+	if len(grp.HotelIds) == 0 {
+		return nil, errors.New("邮件组未关联任何酒店,无法发送 — 请到「编辑邮件组」选择至少一家")
 	}
 	// 加载组成员的邮箱
 	var emails []string
@@ -305,7 +310,30 @@ func (e *Engine) SendGroup(ctx context.Context, groupId, templateId int64) (*mod
 	if len(dedup(emails)) == 0 {
 		return nil, errors.New("该邮件组没有可投递的成员")
 	}
-	return e.sendBatch(ctx, emails, templateId, 0, fmt.Sprintf("group:%d", groupId), grp.HotelId)
+
+	var firstLog *model.EmailLog
+	for _, hid := range grp.HotelIds {
+		var h model.Hotel
+		hotelName := ""
+		if err := e.DB.Select("name").First(&h, hid).Error; err == nil {
+			hotelName = h.Name
+		} else {
+			hotelName = fmt.Sprintf("酒店 #%d", hid)
+		}
+		source := fmt.Sprintf("group:%d|%s", groupId, hotelName)
+		log, err := e.sendBatch(ctx, emails, templateId, 0, source, hid)
+		if err != nil {
+			logx.Errorf("SendGroup groupId=%d hotelId=%d failed: %v", groupId, hid, err)
+			continue
+		}
+		if firstLog == nil {
+			firstLog = log
+		}
+	}
+	if firstLog == nil {
+		return nil, errors.New("邮件组所有酒店均发送失败,请查看后端日志")
+	}
+	return firstLog, nil
 }
 
 // RetryFailed 拿一条 email_logs，把它的 fail_list 里所有失败邮箱重发一遍。

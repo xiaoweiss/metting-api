@@ -10,6 +10,7 @@ import (
 	"meeting/internal/types"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -33,13 +34,18 @@ func (l *UpdateEmailGroupLogic) UpdateEmailGroup(req *types.UpdateEmailGroupReq)
 		return nil, errors.New("名称不能为空")
 	}
 
+	hotelIds := dedupInt64(req.HotelIds)
+	if err := validateHotelIdsExist(l.svcCtx.DB, hotelIds); err != nil {
+		return nil, err
+	}
+
 	err = l.svcCtx.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&model.EmailGroup{}).
 			Where("id = ?", req.Id).
 			Updates(map[string]interface{}{
-				"name":     name,
-				"hotel_id": req.HotelId,
-				"scene":    strings.TrimSpace(req.Scene),
+				"name":      name,
+				"hotel_ids": datatypes.NewJSONSlice(hotelIds),
+				"scene":     strings.TrimSpace(req.Scene),
 			}).Error; err != nil {
 			return err
 		}

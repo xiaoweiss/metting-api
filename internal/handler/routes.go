@@ -8,7 +8,6 @@ import (
 	auth "meeting/internal/handler/auth"
 	dashboard "meeting/internal/handler/dashboard"
 	email "meeting/internal/handler/email"
-	synchandler "meeting/internal/handler/sync"
 	"meeting/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -49,186 +48,10 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/api/admin/users/:id/hotels",
 					Handler: admin.UpdateUserHotelsHandler(serverCtx),
 				},
-			{
-				Method:  http.MethodPut,
-				Path:    "/api/admin/users/:id/status",
-				Handler: admin.UpdateUserStatusHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPut,
-				Path:    "/api/admin/users/:id/role",
-				Handler: admin.UpdateUserRoleHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPut,
-				Path:    "/api/admin/users/:id/email",
-				Handler: admin.UpdateUserEmailHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPut,
-				Path:    "/api/admin/users/:id/phone",
-				Handler: admin.UpdateUserPhoneHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPut,
-				Path:    "/api/admin/users/:id/primary-hotel",
-				Handler: admin.UpdateUserPrimaryHotelHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPost,
-				Path:    "/api/admin/users",
-				Handler: admin.CreateAdminUserHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodGet,
-				Path:    "/api/admin/roles",
-				Handler: admin.ListRolesHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPost,
-				Path:    "/api/admin/roles",
-				Handler: admin.CreateRoleHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPut,
-				Path:    "/api/admin/roles/:id",
-				Handler: admin.UpdateRoleHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodGet,
-				Path:    "/api/admin/mail-setting",
-				Handler: admin.GetMailSettingHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPut,
-				Path:    "/api/admin/mail-setting",
-				Handler: admin.UpdateMailSettingHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodGet,
-				Path:    "/api/admin/mail-templates",
-				Handler: admin.ListMailTemplatesHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPost,
-				Path:    "/api/admin/mail-templates",
-				Handler: admin.CreateMailTemplateHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPut,
-				Path:    "/api/admin/mail-templates/:id",
-				Handler: admin.UpdateMailTemplateHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodDelete,
-				Path:    "/api/admin/mail-templates/:id",
-				Handler: admin.DeleteMailTemplateHandler(serverCtx),
-			},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/admin/sync/trigger",
-					Handler: synchandler.TriggerSyncHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/admin/sync/status",
-					Handler: synchandler.GetSyncStatusHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/admin/sync/schedule",
-					Handler: synchandler.GetSyncScheduleHandler(serverCtx),
-				},
 				{
 					Method:  http.MethodPut,
-					Path:    "/api/admin/sync/schedule",
-					Handler: synchandler.UpdateSyncScheduleHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/admin/notifications",
-					Handler: admin.ListNotificationSettingsHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPut,
-					Path:    "/api/admin/notifications/:channel",
-					Handler: admin.UpdateNotificationSettingHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/admin/notifications/:channel/test",
-					Handler: admin.TestNotificationHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/admin/update-checks",
-					Handler: admin.ListUpdateChecksHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/admin/update-checks/trigger",
-					Handler: admin.TriggerUpdateCheckHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/admin/update-checks/schedule",
-					Handler: admin.GetUpdateCheckScheduleHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPut,
-					Path:    "/api/admin/update-checks/schedule",
-					Handler: admin.UpdateUpdateCheckScheduleHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/admin/mail-blast/schedules",
-					Handler: admin.ListMailBlastSchedulesHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/admin/mail-blast/schedules",
-					Handler: admin.CreateMailBlastScheduleHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPut,
-					Path:    "/api/admin/mail-blast/schedules/:id",
-					Handler: admin.UpdateMailBlastScheduleHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodDelete,
-					Path:    "/api/admin/mail-blast/schedules/:id",
-					Handler: admin.DeleteMailBlastScheduleHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/admin/mail-blast/schedules/:id/trigger",
-					Handler: admin.TriggerMailBlastHandler(serverCtx),
-				},
-				// Upload 移到非 admin 组(普通登录用户也能保存自己看的酒店截图)
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/admin/dashboard-snapshots",
-					Handler: admin.ListDashboardSnapshotsHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/admin/snapshots/:year/:month/:filename",
-					Handler: admin.ServeDashboardSnapshotHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/admin/mail-templates/:id/attachments",
-					Handler: admin.UploadMailTemplateAttachmentHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/admin/mail-templates/:id/attachments",
-					Handler: admin.ListMailTemplateAttachmentsHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodDelete,
-					Path:    "/api/admin/mail-templates/:id/attachments/:attId",
-					Handler: admin.DeleteMailTemplateAttachmentHandler(serverCtx),
+					Path:    "/api/admin/users/:id/status",
+					Handler: admin.UpdateUserStatusHandler(serverCtx),
 				},
 			}...,
 		),
@@ -241,16 +64,6 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/auth/dingtalk-login",
 				Handler: auth.DingTalkLoginHandler(serverCtx),
 			},
-			{
-				Method:  http.MethodGet,
-				Path:    "/api/auth/dev-token",
-				Handler: auth.DevTokenHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPost,
-				Path:    "/api/auth/admin-login",
-				Handler: auth.AdminLoginHandler(serverCtx),
-			},
 		},
 	)
 
@@ -262,11 +75,6 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodGet,
 					Path:    "/api/auth/me",
 					Handler: dashboard.GetMeHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/admin/dashboard-snapshots",
-					Handler: admin.UploadDashboardSnapshotHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodGet,
@@ -327,14 +135,19 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: email.DeleteEmailGroupHandler(serverCtx),
 				},
 				{
-					Method:  http.MethodPost,
-					Path:    "/api/email/groups/:id/send",
-					Handler: email.SendGroupHandler(serverCtx),
-				},
-				{
 					Method:  http.MethodGet,
 					Path:    "/api/email/groups/:id/members",
 					Handler: email.ListEmailGroupMembersHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodGet,
+					Path:    "/api/email/groups/dimensions",
+					Handler: email.GetEmailGroupDimensionsHandler(serverCtx),
+				},
+				{
+					Method:  http.MethodPost,
+					Path:    "/api/email/groups/preview-members",
+					Handler: email.PreviewEmailGroupMembersHandler(serverCtx),
 				},
 				{
 					Method:  http.MethodGet,
@@ -353,26 +166,6 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 				{
 					Method:  http.MethodPost,
-					Path:    "/api/email/logs/retry-all-failed",
-					Handler: email.RetryAllFailedHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/email/logs/:id/recipients",
-					Handler: email.ListLogRecipientsHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/email/logs/:logId/recipients/:rid/retry",
-					Handler: email.RetryLogRecipientHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodGet,
-					Path:    "/api/email/schedules",
-					Handler: email.ListSchedulesHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
 					Path:    "/api/email/schedules",
 					Handler: email.CreateScheduleHandler(serverCtx),
 				},
@@ -380,16 +173,6 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodPut,
 					Path:    "/api/email/schedules/:id",
 					Handler: email.UpdateScheduleHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodDelete,
-					Path:    "/api/email/schedules/:id",
-					Handler: email.DeleteScheduleHandler(serverCtx),
-				},
-				{
-					Method:  http.MethodPost,
-					Path:    "/api/email/send-to-user",
-					Handler: email.SendToUserHandler(serverCtx),
 				},
 			}...,
 		),

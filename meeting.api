@@ -150,12 +150,12 @@ type (
 // ========== 邮件组 ==========
 type (
 	EmailGroupItem {
-		Id          int64  `json:"id"`
-		Name        string `json:"name"`
-		HotelId     int64  `json:"hotelId"`
-		HotelName   string `json:"hotelName"`
-		Scene       string `json:"scene"`
-		MemberCount int    `json:"memberCount"`
+		Id          int64    `json:"id"`
+		Name        string   `json:"name"`
+		HotelIds    []int64  `json:"hotelIds"`
+		HotelNames  []string `json:"hotelNames"`
+		Scene       string   `json:"scene"`
+		MemberCount int      `json:"memberCount"`
 	}
 	EmailGroupListResp {
 		List []EmailGroupItem `json:"list"`
@@ -166,23 +166,46 @@ type (
 		Email  string `json:"email"`
 	}
 	CreateEmailGroupReq {
-		Name    string             `json:"name"`
-		HotelId int64              `json:"hotelId"`
-		Scene   string             `json:"scene,optional"`
-		Members []EmailGroupMember `json:"members"`
+		Name     string             `json:"name"`
+		HotelIds []int64            `json:"hotelIds"`
+		Scene    string             `json:"scene,optional"`
+		Members  []EmailGroupMember `json:"members"`
 	}
 	UpdateEmailGroupReq {
-		Id      int64              `path:"id"`
-		Name    string             `json:"name"`
-		HotelId int64              `json:"hotelId"`
-		Scene   string             `json:"scene,optional"`
-		Members []EmailGroupMember `json:"members"`
+		Id       int64              `path:"id"`
+		Name     string             `json:"name"`
+		HotelIds []int64            `json:"hotelIds"`
+		Scene    string             `json:"scene,optional"`
+		Members  []EmailGroupMember `json:"members"`
 	}
 	EmailGroupIdReq {
 		Id int64 `path:"id"`
 	}
 	EmailGroupMemberListResp {
 		List []EmailGroupMember `json:"list"`
+	}
+
+	// ===== 邮件组维度增强 (B1: 批量按集团/类型选成员) =====
+	EmailGroupDimensionsResp {
+		Groups []string `json:"groups"`
+		Types  []string `json:"types"`
+	}
+	PreviewEmailGroupMembersReq {
+		Dimension string `json:"dimension"` // "group" | "type"
+		Value     string `json:"value"`
+	}
+	PreviewEmailGroupMemberItem {
+		Id         int64  `json:"id"`
+		Name       string `json:"name"`
+		Email      string `json:"email"`
+		HotelId    int64  `json:"hotelId"`
+		HotelName  string `json:"hotelName"`
+		HotelGroup string `json:"hotelGroup"`
+		HotelType  string `json:"hotelType"`
+	}
+	PreviewEmailGroupMembersResp {
+		List  []PreviewEmailGroupMemberItem `json:"list"`
+		Count int                           `json:"count"`
 	}
 )
 
@@ -336,6 +359,12 @@ service meeting-api {
 
 	@handler ListEmailGroupMembers
 	get /api/email/groups/:id/members (EmailGroupIdReq) returns (EmailGroupMemberListResp)
+
+	@handler GetEmailGroupDimensions
+	get /api/email/groups/dimensions returns (EmailGroupDimensionsResp)
+
+	@handler PreviewEmailGroupMembers
+	post /api/email/groups/preview-members (PreviewEmailGroupMembersReq) returns (PreviewEmailGroupMembersResp)
 
 	@handler CreateSchedule
 	post /api/email/schedules (CreateScheduleReq) returns (BaseResp)

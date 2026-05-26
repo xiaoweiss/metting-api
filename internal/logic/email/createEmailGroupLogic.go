@@ -3,6 +3,7 @@ package email
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"meeting/internal/model"
@@ -10,6 +11,7 @@ import (
 	"meeting/internal/types"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -33,11 +35,16 @@ func (l *CreateEmailGroupLogic) CreateEmailGroup(req *types.CreateEmailGroupReq)
 		return nil, errors.New("名称不能为空")
 	}
 
+	hotelIds := dedupInt64(req.HotelIds)
+	if err := validateHotelIdsExist(l.svcCtx.DB, hotelIds); err != nil {
+		return nil, err
+	}
+
 	err = l.svcCtx.DB.Transaction(func(tx *gorm.DB) error {
 		g := model.EmailGroup{
-			Name:    name,
-			HotelId: req.HotelId,
-			Scene:   strings.TrimSpace(req.Scene),
+			Name:     name,
+			HotelIds: datatypes.NewJSONSlice(hotelIds),
+			Scene:    strings.TrimSpace(req.Scene),
 		}
 		if err := tx.Create(&g).Error; err != nil {
 			return err
@@ -68,4 +75,39 @@ func (l *CreateEmailGroupLogic) CreateEmailGroup(req *types.CreateEmailGroupReq)
 		return nil, err
 	}
 	return &types.BaseResp{Message: "ok"}, nil
+}
+
+// dedupInt64 去重保序
+func dedupInt64(ids []int64) []int64 {
+	if len(ids) == 0 {
+		return []int64{}
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+// validateHotelIdsExist 检查所有 hotelId 都存在,允许空数组
+func validateHotelIdsExist(db *gorm.DB, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	var count int64
+	if err := db.Model(&model.Hotel{}).Where("id IN ?", ids).Count(&count).Error; err != nil {
+		return err
+	}
+	if int(count) != len(ids) {
+		return fmt.Errorf("有 %d 个酒店不存在(已传 %d 个)", len(ids)-int(count), len(ids))
+	}
+	return nil
 }

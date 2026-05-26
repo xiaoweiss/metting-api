@@ -82,10 +82,10 @@ type CompetitorActivity struct {
 }
 
 type CreateEmailGroupReq struct {
-	Name    string             `json:"name"`
-	HotelId int64              `json:"hotelId"`
-	Scene   string             `json:"scene,optional"`
-	Members []EmailGroupMember `json:"members"`
+	Name     string             `json:"name"`
+	HotelIds []int64            `json:"hotelIds"`
+	Scene    string             `json:"scene,optional"`
+	Members  []EmailGroupMember `json:"members"`
 }
 
 type CreateHotelReq struct {
@@ -133,12 +133,12 @@ type EmailGroupIdReq struct {
 }
 
 type EmailGroupItem struct {
-	Id          int64  `json:"id"`
-	Name        string `json:"name"`
-	HotelId     int64  `json:"hotelId"`
-	HotelName   string `json:"hotelName"`
-	Scene       string `json:"scene"`
-	MemberCount int    `json:"memberCount"`
+	Id          int64    `json:"id"`
+	Name        string   `json:"name"`
+	HotelIds    []int64  `json:"hotelIds"`
+	HotelNames  []string `json:"hotelNames"`
+	Scene       string   `json:"scene"`
+	MemberCount int      `json:"memberCount"`
 }
 
 type EmailGroupListReq struct {
@@ -298,11 +298,11 @@ type ThresholdResp struct {
 }
 
 type UpdateEmailGroupReq struct {
-	Id      int64              `path:"id"`
-	Name    string             `json:"name"`
-	HotelId int64              `json:"hotelId"`
-	Scene   string             `json:"scene,optional"`
-	Members []EmailGroupMember `json:"members"`
+	Id       int64              `path:"id"`
+	Name     string             `json:"name"`
+	HotelIds []int64            `json:"hotelIds"`
+	Scene    string             `json:"scene,optional"`
+	Members  []EmailGroupMember `json:"members"`
 }
 
 type UpdateScheduleReq struct {
@@ -476,4 +476,31 @@ type UpdateMailSettingReq struct {
 	Username string `json:"username"`
 	Password string `json:"password,optional"`
 	FromName string `json:"fromName"`
+}
+
+// ========== 邮件组维度增强 (B1: 按集团/类型批量选成员) ==========
+
+type EmailGroupDimensionsResp struct {
+	Groups []string `json:"groups"` // distinct hotels.hotel_group
+	Types  []string `json:"types"`  // distinct hotels.hotel_type
+}
+
+type PreviewEmailGroupMembersReq struct {
+	Dimension string `json:"dimension"` // "group" | "type"
+	Value     string `json:"value"`
+}
+
+type PreviewEmailGroupMemberItem struct {
+	Id          int64  `json:"id"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	HotelId     int64  `json:"hotelId"`
+	HotelName   string `json:"hotelName"`
+	HotelGroup  string `json:"hotelGroup"`
+	HotelType   string `json:"hotelType"`
+}
+
+type PreviewEmailGroupMembersResp struct {
+	List  []PreviewEmailGroupMemberItem `json:"list"`
+	Count int                           `json:"count"`
 }
