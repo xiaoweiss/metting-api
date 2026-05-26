@@ -175,14 +175,23 @@ func buildOccupancyList(
 		eventMap[e.EventDate] = e.Count
 	}
 
-	// 收集所有日期
+	// 收集所有日期 - 三源并集 (本酒店 ∪ 竞对 ∪ 商圈)
+	// 业务目的: 竞对/商圈有数据但本酒店未录入的日子也要出现在日历里,
+	// 让投手看到「该补录入」,而不是被默默隐藏
 	dateSet := map[string]bool{}
 	for _, r := range hotel {
+		dateSet[r.RecordDate] = true
+	}
+	for _, r := range competitor {
+		dateSet[r.RecordDate] = true
+	}
+	for _, r := range market {
 		dateSet[r.RecordDate] = true
 	}
 
 	var result []types.DailyOccupancy
 	for date := range dateSet {
+		_, hasHotel := hotelMap[date]
 		result = append(result, types.DailyOccupancy{
 			Date: date,
 			Hotel: types.PeriodData{
@@ -201,6 +210,7 @@ func buildOccupancyList(
 				E: rate(mktMap[date]["EV"]),
 			},
 			CityEventCount: eventMap[date],
+			HasHotelRecord: hasHotel,
 		})
 	}
 	return result

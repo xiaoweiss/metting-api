@@ -114,6 +114,7 @@ type DailyOccupancy struct {
 	CompetitorAvg  PeriodData `json:"competitorAvg"`
 	MarketAvg      PeriodData `json:"marketAvg"`
 	CityEventCount int        `json:"cityEventCount"`
+	HasHotelRecord bool       `json:"hasHotelRecord"` // 本酒店当天是否有 meeting_records (用于区分「真 0%」和「无数据」)
 }
 
 type DingTalkLoginReq struct {
