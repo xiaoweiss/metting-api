@@ -18,6 +18,7 @@ func (e *Engine) syncHotels(ctx context.Context) (map[string]int64, error) {
 	}
 
 	recordIdToHotelId := make(map[string]int64)
+	hotelNameToId := make(map[string]int64) // 给第二遍竞对解析用,按 name 反查
 	defaultCity := e.cfg.DingTalk.Sheet.DefaultCity
 
 	// 第一遍：upsert 商圈 + 酒店
@@ -54,9 +55,12 @@ func (e *Engine) syncHotels(ctx context.Context) (map[string]int64, error) {
 		}
 
 		recordIdToHotelId[rec.RecordId] = hotel.Id
+		hotelNameToId[hotelName] = hotel.Id
 	}
 
 	// 第二遍：构建竞对关系（需要所有酒店都已入库）
+	// 钉钉源「选择竞对酒店」已从 linkedRecord 改为多选 option,格式 [{id,name},...]
+	// 用 multipleSelectNames 拿名字,再按 name 匹配 hotels.name 找 hotel_id
 	for _, rec := range records {
 		row := rec.Fields
 		hotelId, ok := recordIdToHotelId[rec.RecordId]
@@ -64,8 +68,8 @@ func (e *Engine) syncHotels(ctx context.Context) (map[string]int64, error) {
 			continue
 		}
 
-		competitorRecordIds := linkedRecordIds(row, "选择竞对酒店")
-		if len(competitorRecordIds) == 0 {
+		competitorNames := multipleSelectNames(row, "选择竞对酒店")
+		if len(competitorNames) == 0 {
 			continue
 		}
 
@@ -79,10 +83,10 @@ func (e *Engine) syncHotels(ctx context.Context) (map[string]int64, error) {
 		// 清空旧关系，重建
 		e.db.Where("group_id = ?", group.Id).Delete(&model.CompetitorGroupHotel{})
 
-		for _, compRecordId := range competitorRecordIds {
-			compHotelId, exists := recordIdToHotelId[compRecordId]
+		for _, compName := range competitorNames {
+			compHotelId, exists := hotelNameToId[compName]
 			if !exists {
-				logx.Infof("[syncHotels] 竞对 recordId=%s 未找到对应酒店，跳过", compRecordId)
+				logx.Infof("[syncHotels] 竞对酒店「%s」在 hotels 表里找不到,跳过", compName)
 				continue
 			}
 			e.db.Create(&model.CompetitorGroupHotel{
