@@ -7,6 +7,7 @@ import (
 	"meeting/internal/model"
 	"meeting/internal/svc"
 	"meeting/internal/types"
+	"meeting/pkg/audit"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -40,9 +41,15 @@ func (l *UpdateUserPrimaryHotelLogic) UpdateUserPrimaryHotel(req *types.UpdateUs
 	if req.PrimaryHotelId > 0 {
 		updateVal = req.PrimaryHotelId
 	}
+	var before model.User
+	l.svcCtx.DB.Select("id, name, primary_hotel_id").First(&before, req.Id)
 	if err := l.svcCtx.DB.Table("users").Where("id = ?", req.Id).
 		Update("primary_hotel_id", updateVal).Error; err != nil {
 		return nil, err
 	}
+	audit.Log(l.ctx, l.svcCtx.DB, audit.ActionUpdate, audit.TargetUsers,
+		before.Id, before.Name,
+		map[string]interface{}{"primary_hotel_id": before.PrimaryHotelId},
+		map[string]interface{}{"primary_hotel_id": updateVal})
 	return &types.BaseResp{Message: "ok"}, nil
 }

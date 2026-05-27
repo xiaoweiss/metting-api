@@ -7,6 +7,7 @@ import (
 	"meeting/internal/model"
 	"meeting/internal/svc"
 	"meeting/internal/types"
+	"meeting/pkg/audit"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"golang.org/x/crypto/bcrypt"
@@ -53,5 +54,10 @@ func (l *CreateAdminUserLogic) CreateAdminUser(req *types.CreateAdminUserReq) (*
 	if err := l.svcCtx.DB.Create(&user).Error; err != nil {
 		return nil, err
 	}
+	// audit: 不暴露 admin_password
+	snap := user
+	snap.AdminPassword = "***"
+	audit.Log(l.ctx, l.svcCtx.DB, audit.ActionCreate, audit.TargetUsers,
+		user.Id, user.Name, nil, snap)
 	return &types.BaseResp{Message: "ok"}, nil
 }

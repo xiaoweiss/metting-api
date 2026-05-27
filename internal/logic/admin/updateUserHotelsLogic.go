@@ -5,6 +5,7 @@ import (
 
 	"meeting/internal/svc"
 	"meeting/internal/types"
+	"meeting/pkg/audit"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -24,6 +25,12 @@ func NewUpdateUserHotelsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 }
 
 func (l *UpdateUserHotelsLogic) UpdateUserHotels(req *types.UpdateUserHotelsReq) (resp *types.BaseResp, err error) {
+	// audit before
+	var beforeIds []int64
+	l.svcCtx.DB.Raw("SELECT hotel_id FROM user_hotel_perms WHERE user_id = ?", req.Id).Scan(&beforeIds)
+	var userName string
+	l.svcCtx.DB.Raw("SELECT name FROM users WHERE id = ?", req.Id).Scan(&userName)
+
 	tx := l.svcCtx.DB.Begin()
 	if tx.Error != nil {
 		return nil, tx.Error
@@ -45,5 +52,9 @@ func (l *UpdateUserHotelsLogic) UpdateUserHotels(req *types.UpdateUserHotelsReq)
 	if err = tx.Commit().Error; err != nil {
 		return nil, err
 	}
+	audit.Log(l.ctx, l.svcCtx.DB, audit.ActionUpdate, audit.TargetUsers,
+		req.Id, userName,
+		map[string]interface{}{"hotel_ids": beforeIds},
+		map[string]interface{}{"hotel_ids": req.HotelIds})
 	return &types.BaseResp{Code: 0, Message: "ok"}, nil
 }

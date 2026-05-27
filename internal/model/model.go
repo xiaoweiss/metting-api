@@ -332,3 +332,21 @@ type MailTemplateAttachment struct {
 }
 
 func (MailTemplateAttachment) TableName() string { return "mail_template_attachments" }
+
+// AuditLog 后台管理操作审计 (migration 017)
+// 失败由 pkg/audit 内部 swallow,不阻塞业务
+type AuditLog struct {
+	Id          int64          `gorm:"primaryKey;autoIncrement"`
+	UserId      *int64         `gorm:"column:user_id"`         // 操作人, NULL=system
+	UserName    string         `gorm:"column:user_name;size:64"`
+	Action      string         `gorm:"size:32;not null"` // create / update / delete / trigger
+	TargetType  string         `gorm:"column:target_type;size:64;not null"`
+	TargetId    *int64         `gorm:"column:target_id"`
+	TargetName  string         `gorm:"column:target_name;size:255"`
+	BeforeValue datatypes.JSON `gorm:"column:before_value;type:json"`
+	AfterValue  datatypes.JSON `gorm:"column:after_value;type:json"`
+	Ip          string         `gorm:"size:64"`
+	CreatedAt   time.Time
+}
+
+func (AuditLog) TableName() string { return "audit_logs" }

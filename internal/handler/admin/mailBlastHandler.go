@@ -11,6 +11,7 @@ import (
 
 	"meeting/internal/model"
 	"meeting/internal/svc"
+	"meeting/pkg/audit"
 )
 
 // ListMailBlastSchedulesHandler GET /api/admin/mail-blast/schedules
@@ -99,6 +100,8 @@ func CreateMailBlastScheduleHandler(svcCtx *svc.ServiceContext) http.HandlerFunc
 				return
 			}
 		}
+		audit.Log(r.Context(), svcCtx.DB, audit.ActionCreate, audit.TargetMailBlastSchedules,
+			row.Id, row.Name, nil, row)
 		httpx.OkJsonCtx(r.Context(), w, map[string]interface{}{"id": row.Id})
 	}
 }
@@ -134,6 +137,10 @@ func UpdateMailBlastScheduleHandler(svcCtx *svc.ServiceContext) http.HandlerFunc
 			svcCtx.BlastScheduler.Remove(req.Id)
 		}
 
+		// audit before
+		var before model.MailBlastSchedule
+		svcCtx.DB.First(&before, req.Id)
+
 		updates := map[string]interface{}{
 			"name":        body.Name,
 			"cron_expr":   body.CronExpr,
@@ -144,6 +151,10 @@ func UpdateMailBlastScheduleHandler(svcCtx *svc.ServiceContext) http.HandlerFunc
 			http.Error(w, "更新失败: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		var after model.MailBlastSchedule
+		svcCtx.DB.First(&after, req.Id)
+		audit.Log(r.Context(), svcCtx.DB, audit.ActionUpdate, audit.TargetMailBlastSchedules,
+			after.Id, after.Name, before, after)
 		httpx.OkJsonCtx(r.Context(), w, map[string]interface{}{"id": req.Id})
 	}
 }
@@ -179,6 +190,8 @@ func DeleteMailBlastScheduleHandler(svcCtx *svc.ServiceContext) http.HandlerFunc
 			http.Error(w, "删除失败: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		audit.Log(r.Context(), svcCtx.DB, audit.ActionDelete, audit.TargetMailBlastSchedules,
+			row.Id, row.Name, row, nil)
 		httpx.OkJsonCtx(r.Context(), w, map[string]interface{}{"deleted": path.Id})
 	}
 }
@@ -194,11 +207,18 @@ func TriggerMailBlastHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			http.Error(w, "id 非法", http.StatusBadRequest)
 			return
 		}
+		// audit: 取触发前 schedule 快照
+		var before model.MailBlastSchedule
+		svcCtx.DB.First(&before, path.Id)
 		log, err := svcCtx.BlastEngine.RunBlastById(r.Context(), path.Id)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		var after model.MailBlastSchedule
+		svcCtx.DB.First(&after, path.Id)
+		audit.Log(r.Context(), svcCtx.DB, audit.ActionTrigger, audit.TargetMailBlastSchedules,
+			after.Id, after.Name, before, after)
 		httpx.OkJsonCtx(r.Context(), w, map[string]interface{}{
 			"status":    log.Status,
 			"total":     log.Total,

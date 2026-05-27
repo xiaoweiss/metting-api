@@ -6,6 +6,7 @@ import (
 	"meeting/internal/model"
 	"meeting/internal/svc"
 	"meeting/internal/types"
+	"meeting/pkg/audit"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -39,22 +40,34 @@ func (l *MailTemplateLogic) Create(req *types.CreateMailTemplateReq) (*types.Bas
 	if err := l.svcCtx.DB.Create(&t).Error; err != nil {
 		return nil, err
 	}
+	audit.Log(l.ctx, l.svcCtx.DB, audit.ActionCreate, audit.TargetMailTemplates,
+		t.Id, t.Name, nil, t)
 	return &types.BaseResp{Message: "ok"}, nil
 }
 
 func (l *MailTemplateLogic) Update(req *types.UpdateMailTemplateReq) (*types.BaseResp, error) {
+	var before model.MailTemplate
+	l.svcCtx.DB.First(&before, req.Id)
 	err := l.svcCtx.DB.Model(&model.MailTemplate{}).Where("id = ?", req.Id).Updates(map[string]interface{}{
 		"name": req.Name, "subject": req.Subject, "body": req.Body, "description": req.Description,
 	}).Error
 	if err != nil {
 		return nil, err
 	}
+	var after model.MailTemplate
+	l.svcCtx.DB.First(&after, req.Id)
+	audit.Log(l.ctx, l.svcCtx.DB, audit.ActionUpdate, audit.TargetMailTemplates,
+		after.Id, after.Name, before, after)
 	return &types.BaseResp{Message: "ok"}, nil
 }
 
 func (l *MailTemplateLogic) Delete(id int64) (*types.BaseResp, error) {
+	var before model.MailTemplate
+	l.svcCtx.DB.First(&before, id)
 	if err := l.svcCtx.DB.Delete(&model.MailTemplate{}, id).Error; err != nil {
 		return nil, err
 	}
+	audit.Log(l.ctx, l.svcCtx.DB, audit.ActionDelete, audit.TargetMailTemplates,
+		id, before.Name, before, nil)
 	return &types.BaseResp{Message: "ok"}, nil
 }

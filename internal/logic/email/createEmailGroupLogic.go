@@ -9,6 +9,7 @@ import (
 	"meeting/internal/model"
 	"meeting/internal/svc"
 	"meeting/internal/types"
+	"meeting/pkg/audit"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"gorm.io/datatypes"
@@ -40,6 +41,8 @@ func (l *CreateEmailGroupLogic) CreateEmailGroup(req *types.CreateEmailGroupReq)
 		return nil, err
 	}
 
+	var newGroupId int64
+	var memberEmails []string
 	err = l.svcCtx.DB.Transaction(func(tx *gorm.DB) error {
 		g := model.EmailGroup{
 			Name:     name,
@@ -49,6 +52,7 @@ func (l *CreateEmailGroupLogic) CreateEmailGroup(req *types.CreateEmailGroupReq)
 		if err := tx.Create(&g).Error; err != nil {
 			return err
 		}
+		newGroupId = g.Id
 		for _, m := range req.Members {
 			email := strings.TrimSpace(m.Email)
 			if email == "" {
@@ -68,12 +72,20 @@ func (l *CreateEmailGroupLogic) CreateEmailGroup(req *types.CreateEmailGroupReq)
 			}).Error; err != nil {
 				return err
 			}
+			memberEmails = append(memberEmails, email)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	audit.Log(l.ctx, l.svcCtx.DB, audit.ActionCreate, audit.TargetEmailGroups,
+		newGroupId, name, nil, map[string]interface{}{
+			"name":      name,
+			"hotel_ids": hotelIds,
+			"scene":     strings.TrimSpace(req.Scene),
+			"members":   memberEmails,
+		})
 	return &types.BaseResp{Message: "ok"}, nil
 }
 

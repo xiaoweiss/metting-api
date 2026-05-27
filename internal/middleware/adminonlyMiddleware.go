@@ -6,8 +6,28 @@ import (
 	"strconv"
 	"strings"
 
+	"meeting/pkg/audit"
+
 	"gorm.io/gorm"
 )
+
+// clientIp 取 X-Forwarded-For 第一段 / X-Real-IP / RemoteAddr 兜底。
+func clientIp(r *http.Request) string {
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		if i := strings.IndexByte(v, ','); i > 0 {
+			return strings.TrimSpace(v[:i])
+		}
+		return strings.TrimSpace(v)
+	}
+	if v := r.Header.Get("X-Real-IP"); v != "" {
+		return v
+	}
+	// RemoteAddr 形如 "1.2.3.4:5678",截掉端口
+	if i := strings.LastIndexByte(r.RemoteAddr, ':'); i > 0 {
+		return r.RemoteAddr[:i]
+	}
+	return r.RemoteAddr
+}
 
 func NewAdminOnlyMiddleware(db *gorm.DB) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
@@ -20,6 +40,7 @@ func NewAdminOnlyMiddleware(db *gorm.DB) func(http.HandlerFunc) http.HandlerFunc
 			}
 
 			var row struct {
+				Name     string
 				IsAdmin  bool
 				Status   string
 				RoleId   *int64
@@ -27,12 +48,15 @@ func NewAdminOnlyMiddleware(db *gorm.DB) func(http.HandlerFunc) http.HandlerFunc
 				Apis     *string
 			}
 			db.Raw(`
-				SELECT u.is_admin, u.status, u.role_id,
+				SELECT u.name, u.is_admin, u.status, u.role_id,
 					   r.name AS role_name, r.apis
 				FROM users u
 				LEFT JOIN roles r ON r.id = u.role_id
 				WHERE u.id = ? AND u.status = 'active'
 			`, userId).Scan(&row)
+
+			// audit: 注入操作人到 ctx,下游 logic 通过 audit.Log 隐式拿到
+			r = r.WithContext(audit.WithActor(r.Context(), userId, row.Name, clientIp(r)))
 
 			if row.Status != "active" {
 				forbidden(w, "账号未激活")

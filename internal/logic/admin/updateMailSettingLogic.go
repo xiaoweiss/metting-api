@@ -6,6 +6,7 @@ import (
 	"meeting/internal/model"
 	"meeting/internal/svc"
 	"meeting/internal/types"
+	"meeting/pkg/audit"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -31,6 +32,12 @@ func (l *UpdateMailSettingLogic) UpdateMailSetting(req *types.UpdateMailSettingR
 		updates["password"] = req.Password
 	}
 
+	// audit before
+	var before model.MailSetting
+	l.svcCtx.DB.First(&before)
+	beforeSnap := before
+	beforeSnap.Password = "***"
+
 	var count int64
 	l.svcCtx.DB.Model(&model.MailSetting{}).Count(&count)
 	if count == 0 {
@@ -48,5 +55,12 @@ func (l *UpdateMailSettingLogic) UpdateMailSetting(req *types.UpdateMailSettingR
 	if err != nil {
 		return nil, err
 	}
+	// audit after (password 屏蔽,只看 smtp/from_name/username 变化)
+	var after model.MailSetting
+	l.svcCtx.DB.First(&after)
+	afterSnap := after
+	afterSnap.Password = "***"
+	audit.Log(l.ctx, l.svcCtx.DB, audit.ActionUpdate, audit.TargetMailSettings,
+		after.Id, "SMTP 配置", beforeSnap, afterSnap)
 	return &types.BaseResp{Message: "ok"}, nil
 }
