@@ -130,9 +130,20 @@ func buildActivityList(
 		eventMap[e.EventDate] = e.Count
 	}
 
+	// 四源并集 (本酒店 ∪ 竞对 ∪ 商圈 ∪ 城市活动) — 跟 occupancy 一致,
+	// 避免切 venueType 后某些天没本酒店活动但商圈/城市活动有数据的天被丢
 	dateSet := map[string]bool{}
 	for _, r := range hotel {
 		dateSet[r.RecordDate] = true
+	}
+	for _, r := range comp {
+		dateSet[r.RecordDate] = true
+	}
+	for _, r := range mkt {
+		dateSet[r.RecordDate] = true
+	}
+	for _, e := range events {
+		dateSet[e.EventDate] = true
 	}
 
 	var result []types.DailyActivity

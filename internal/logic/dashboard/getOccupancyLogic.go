@@ -175,9 +175,10 @@ func buildOccupancyList(
 		eventMap[e.EventDate] = e.Count
 	}
 
-	// 收集所有日期 - 三源并集 (本酒店 ∪ 竞对 ∪ 商圈)
-	// 业务目的: 竞对/商圈有数据但本酒店未录入的日子也要出现在日历里,
-	// 让投手看到「该补录入」,而不是被默默隐藏
+	// 收集所有日期 - 四源并集 (本酒店 ∪ 竞对 ∪ 商圈 ∪ 城市活动)
+	// 业务目的: 竞对/商圈/城市活动有数据但本酒店未录入的日子也要出现在日历里,
+	// 让投手看到「该补录入」+ 小红旗,而不是被默默隐藏
+	// 注: city_events 必须并入,否则切 venueType 后三源都没数据但有活动的天会丢小红旗
 	dateSet := map[string]bool{}
 	for _, r := range hotel {
 		dateSet[r.RecordDate] = true
@@ -187,6 +188,9 @@ func buildOccupancyList(
 	}
 	for _, r := range market {
 		dateSet[r.RecordDate] = true
+	}
+	for _, e := range events {
+		dateSet[e.EventDate] = true
 	}
 
 	var result []types.DailyOccupancy
