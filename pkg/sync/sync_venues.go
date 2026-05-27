@@ -41,33 +41,20 @@ func (e *Engine) syncVenues(ctx context.Context, recordIdToHotelId map[string]in
 		availablePeriods := strings.Join(periods, ",")
 
 		// 解析酒店关联
-		// 钉钉源「选择酒店」已从 linkedRecord 改为多选 option,格式 [{id,name},...]
-		// 用 multipleSelectNames 拿名字,按 name 匹配 hotels.name 找 hotel_id
+		// 钉钉源「选择酒店」已从 linkedRecord 改为单选 option,格式 {id, name}
+		// 用 singleSelectName 拿名字,按 name 匹配 hotels.name 找 hotel_id
 		var hotelId int64
 		var exists bool
-		hotelOptionNames := multipleSelectNames(row, "选择酒店")
-		if len(hotelOptionNames) > 0 {
+		hotelOptionName := singleSelectName(row, "选择酒店")
+		if hotelOptionName != "" {
 			var h model.Hotel
-			if err := e.db.Where("name = ?", hotelOptionNames[0]).First(&h).Error; err == nil && h.Id > 0 {
+			if err := e.db.Where("name = ?", hotelOptionName).First(&h).Error; err == nil && h.Id > 0 {
 				hotelId = h.Id
 				exists = true
 			}
 		}
-		// 兜底:如果「选择酒店」option 没匹配上,用会议室行里的「酒店名称 Hotel Name」
-		// (lookup 字段,name 部分)匹配酒店 name
 		if !exists {
-			hotelName := linkedRecordName(row, "酒店名称 Hotel Name")
-			if hotelName != "" {
-				var fallback model.Hotel
-				if err := e.db.Where("name = ?", hotelName).First(&fallback).Error; err == nil && fallback.Id > 0 {
-					hotelId = fallback.Id
-					exists = true
-					logx.Infof("[syncVenues] %s 走 lookup 字段兜底匹配酒店 '%s'", venueName, hotelName)
-				}
-			}
-		}
-		if !exists {
-			logx.Infof("[syncVenues] %s 酒店「%v」未找到 + 兜底也失败，跳过", venueName, hotelOptionNames)
+			logx.Infof("[syncVenues] %s 「选择酒店」=「%s」在 hotels 表里找不到，跳过", venueName, hotelOptionName)
 			continue
 		}
 
