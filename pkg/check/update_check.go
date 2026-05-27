@@ -57,7 +57,10 @@ func (e *Engine) RunCheck(ctx context.Context, checkDate time.Time) ([]HotelStat
 		return nil, err
 	}
 
-	// 统计每家酒店"该营业日"在 meeting_records 是否有数据
+	// 统计每家酒店"今天是否有录入动作"
+	// 用 entry_date(投手在钉钉「录入日期」字段填的日期),而不是 record_date(会议室出租日期)
+	// 业务语义:今天投手登录钉钉录了任何一条数据 → 这家酒店今天 OK,不预警
+	//          (不管录的是哪一天的会议,只要今天有动作即可)
 	type countRow struct {
 		HotelId int64
 		Cnt     int
@@ -66,7 +69,8 @@ func (e *Engine) RunCheck(ctx context.Context, checkDate time.Time) ([]HotelStat
 	e.DB.Raw(`
 		SELECT hotel_id, COUNT(*) AS cnt
 		FROM meeting_records
-		WHERE DATE_FORMAT(record_date, '%Y-%m-%d') = ?
+		WHERE entry_date IS NOT NULL
+		  AND DATE_FORMAT(entry_date, '%Y-%m-%d') = ?
 		GROUP BY hotel_id
 	`, dateStr).Scan(&counts)
 
