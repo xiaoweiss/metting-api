@@ -61,10 +61,12 @@ func (l *DingTalkLoginLogic) DingTalkLogin(req *types.DingTalkLoginReq) (resp *t
 	} else if result.Error != nil {
 		return nil, result.Error
 	} else {
-		// 已有用户，更新姓名
+		// 已有用户：只更新姓名。
+		// ❗email 不能在这里覆盖 —— 钉钉 GetUserByCode 对没授权邮箱 scope 的投手返回空 email,
+		// 投手每次打开 H5 免登都会触发,会把 admin 在后台手填的 email 冲掉(历史 bug)。
+		// email 只由 admin 后台「用户管理」维护。
 		l.svcCtx.DB.Model(&user).Updates(map[string]interface{}{
-			"name":  userInfo.Name,
-			"email": userInfo.Email,
+			"name": userInfo.Name,
 		})
 	}
 
