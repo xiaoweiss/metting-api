@@ -5,15 +5,55 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"meeting/pkg/dingtalk"
 )
 
+// normColumnKey 归一化列名:只保留中文 + 英文字母 + 数字,去掉空格/括号/√ 等标点。
+// 钉钉经常给列名加英文后缀或改中英文间空格(如「酒店名称 Hotel Name」→「酒店名称Hotel Name」、
+// 「会议室类型 （Meeting Room Category)」→「会议室类型Meeting Room Category」),归一后能稳定匹配。
+func normColumnKey(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// resolveKey 在 row 里找跟 want 对应的实际列名,容忍钉钉列名加后缀/改空格/改标点:
+//  1. 精确匹配
+//  2. 归一化后精确匹配(吸收「去空格/去括号」类变化)
+//  3. 归一化后前缀匹配(吸收「中文不变、尾部加英文翻译」类变化)
+//
+// 找不到则返回 want 原值(让下游按缺字段处理)。
+func resolveKey(row dingtalk.SheetRow, want string) string {
+	if _, ok := row[want]; ok {
+		return want
+	}
+	nw := normColumnKey(want)
+	if nw == "" {
+		return want
+	}
+	for k := range row {
+		if normColumnKey(k) == nw {
+			return k
+		}
+	}
+	for k := range row {
+		if strings.HasPrefix(normColumnKey(k), nw) {
+			return k
+		}
+	}
+	return want
+}
+
 // textField 提取文本字段
 // 兼容钉钉把"看似文本"的字段返回成单选/link 格式 {id, name}
-// 例如 Daily Data Input 里「酒店名称 Hotel Name」是 lookup，返回 map；
-// 而 酒店基础信息表 里同名字段是纯字符串
 func textField(row dingtalk.SheetRow, key string) string {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return ""
@@ -32,6 +72,7 @@ func textField(row dingtalk.SheetRow, key string) string {
 // singleSelectName 提取单选字段的 name
 // API 格式: {"id": "xxx", "name": "值"}
 func singleSelectName(row dingtalk.SheetRow, key string) string {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return ""
@@ -47,6 +88,7 @@ func singleSelectName(row dingtalk.SheetRow, key string) string {
 // multipleSelectNames 提取多选字段的所有 name
 // API 格式: [{"id": "xxx", "name": "上午"}, {"id": "xxx", "name": "下午"}]
 func multipleSelectNames(row dingtalk.SheetRow, key string) []string {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return nil
@@ -73,6 +115,7 @@ func multipleSelectNames(row dingtalk.SheetRow, key string) []string {
 //   - {"id": "xxx", "name": "yyy"}                  (Daily Data 里 Room Name / Hotel Name)
 //   - {"linkedRecordIds": ["xxx"], "name": "yyy"}   (酒店会议室信息表里「选择酒店」)
 func linkedRecordId(row dingtalk.SheetRow, key string) string {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return ""
@@ -99,6 +142,7 @@ func linkedRecordId(row dingtalk.SheetRow, key string) string {
 //   - {"id": "xxx", "name": "yyy"}                  (Daily Data 里 Room Name / Hotel Name)
 //   - {"linkedRecordIds": ["xxx"], "name": "yyy"}   (酒店会议室信息表里「选择酒店」)
 func linkedRecordName(row dingtalk.SheetRow, key string) string {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return ""
@@ -116,6 +160,7 @@ func linkedRecordName(row dingtalk.SheetRow, key string) string {
 // linkedRecordIds 提取关联字段的 recordId 列表
 // API 格式: {"linkedRecordIds": ["abc", "def"]}
 func linkedRecordIds(row dingtalk.SheetRow, key string) []string {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return nil
@@ -139,6 +184,7 @@ func linkedRecordIds(row dingtalk.SheetRow, key string) []string {
 
 // checkboxField 提取勾选框字段
 func checkboxField(row dingtalk.SheetRow, key string) bool {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return false
@@ -149,6 +195,7 @@ func checkboxField(row dingtalk.SheetRow, key string) bool {
 
 // dateField 提取日期字段（钉钉返回 unix 毫秒时间戳）
 func dateField(row dingtalk.SheetRow, key string) *time.Time {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return nil
@@ -164,6 +211,7 @@ func dateField(row dingtalk.SheetRow, key string) *time.Time {
 // numberField 提取数字字段，NaN/Inf 返回 0
 // 兼容钉钉把数字存成字符串（如 剧院式 Theater = "50"）
 func numberField(row dingtalk.SheetRow, key string) float64 {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return 0
@@ -190,6 +238,7 @@ type userInfo struct {
 // userFields 提取人员字段
 // API 格式: [{"unionId": "xxx", "name": "钱缘"}]
 func userFields(row dingtalk.SheetRow, key string) []userInfo {
+	key = resolveKey(row, key)
 	v, ok := row[key]
 	if !ok || v == nil {
 		return nil
