@@ -35,12 +35,14 @@ type HotelStatus struct {
 	RecordCount int
 }
 
-// userTarget 单个用户的通知目标(用于按用户分发邮件)
+// userTarget 单个用户的通知目标(用于按用户分发各类通道)
 type userTarget struct {
-	UserId int64
-	Name   string
-	Email  string
-	Hotels []HotelStatus
+	UserId  int64
+	Name    string
+	Email   string
+	Phone   string
+	UnionId string
+	Hotels  []HotelStatus
 }
 
 // RunCheck 对 checkDate 做一次全量检测 + 发送通知
@@ -60,7 +62,6 @@ func (e *Engine) RunCheck(ctx context.Context, checkDate time.Time) ([]HotelStat
 	// 统计每家酒店"今天是否有录入动作"
 	// 用 entry_date(投手在钉钉「录入日期」字段填的日期),而不是 record_date(会议室出租日期)
 	// 业务语义:今天投手登录钉钉录了任何一条数据 → 这家酒店今天 OK,不预警
-	//          (不管录的是哪一天的会议,只要今天有动作即可)
 	type countRow struct {
 		HotelId int64
 		Cnt     int
@@ -112,65 +113,76 @@ func (e *Engine) RunCheck(ctx context.Context, checkDate time.Time) ([]HotelStat
 	return statuses, nil
 }
 
-// Notify 发送通知:
-// - email channel: 按 user 分发(每个负责人只收到他自己负责的缺录酒店列表,To 单收件人,无邮箱互相暴露)
-// - dingtalk_robot: 群里发"无负责人酒店"清单 + "已通知 N 位负责人"摘要
-// - sms / dingtalk_ding: 维持旧逻辑(汇总所有 phones/unionids 一次发,SMS 是模板触达,工作通知 API 本身就是 1-on-1)
+// Notify 全部 1-on-1 通道(email / sms / dingtalk_ding)都按 user 分发:
+//   每个负责人只收自己负责的酒店列表,内容隔离 + 信息精准
+// dingtalk_robot 群发只送"无对接人员"酒店清单 + 简要"已通知 N 位"摘要
 func (e *Engine) Notify(ctx context.Context, dateStr string, missing []HotelStatus) error {
-	// 按 user 分组缺录酒店,并算出"无负责人"酒店
 	userTargets, orphanHotels := e.groupByUser(missing)
 
-	// 旧版聚合 msg(给 sms / dingtalk_ding / 摘要文本 用)
-	var bullets []string
-	for _, m := range missing {
-		bullets = append(bullets, fmt.Sprintf("• %s", m.HotelName))
-	}
-	md := fmt.Sprintf("**⚠️ 会议室数据未录入提醒**\n\n业务日期：**%s**\n\n以下 **%d** 家酒店今日尚未录入数据：\n\n%s\n\n请相关对接人员尽快登录钉钉 AI 表完成录入。",
-		dateStr, len(missing), strings.Join(bullets, "\n"))
-	text := fmt.Sprintf("【会议室数据未录入提醒】%s 以下 %d 家酒店未录入：%s",
-		dateStr, len(missing), strings.Join(nameList(missing), "，"))
-
-	phones := e.collectPhones(missing)
-	unionids := e.collectUnionIds(missing)
-
-	aggregateMsg := notify.Message{
-		Title:    "会议室数据未录入提醒",
-		Text:     text,
-		Markdown: md,
-		Phones:   phones,
-		Unionids: unionids,
-	}
-
-	// 找所有启用的渠道
+	// 加载启用渠道
 	var settings []model.NotificationSetting
 	e.DB.Where("enabled = 1").Find(&settings)
-
-	var sentChannels []string
+	enabled := map[string]bool{}
 	for _, s := range settings {
-		switch notify.Channel(s.Channel) {
-		case notify.ChannelEmail:
-			if e.sendEmailPerUser(ctx, dateStr, userTargets) {
-				sentChannels = append(sentChannels, s.Channel)
-			}
+		enabled[s.Channel] = true
+	}
 
-		case notify.ChannelDingTalkRobot:
-			if e.sendDingTalkRobot(ctx, dateStr, orphanHotels, userTargets) {
-				sentChannels = append(sentChannels, s.Channel)
-			}
+	emailSender := &notify.EmailSender{DB: e.DB, Cfg: e.Cfg}
+	smsSender := &notify.AliyunSMSSender{DB: e.DB}
+	dingSender := &notify.DingTalkDingSender{DB: e.DB, Cfg: e.Cfg, Client: e.Client}
 
-		default:
-			// sms / dingtalk_ding 维持原状
-			sender := e.buildSender(notify.Channel(s.Channel))
-			if sender == nil {
-				continue
+	emailSent, smsSent, dingSent := 0, 0, 0
+	for _, u := range userTargets {
+		userMsg := buildUserMessage(dateStr, u)
+
+		if enabled["email"] && u.Email != "" {
+			m := userMsg
+			m.Emails = []string{u.Email}
+			if err := emailSender.Send(ctx, m); err != nil {
+				logx.Errorf("[UpdateCheck] email → %s(%s)失败: %v", u.Name, u.Email, err)
+			} else {
+				emailSent++
 			}
-			if err := sender.Send(ctx, aggregateMsg); err != nil {
-				logx.Errorf("[UpdateCheck] 渠道 %s 发送失败: %v", s.Channel, err)
-				continue
+		}
+		if enabled["sms"] && u.Phone != "" {
+			m := userMsg
+			m.Phones = []string{u.Phone}
+			if err := smsSender.Send(ctx, m); err != nil {
+				logx.Errorf("[UpdateCheck] sms → %s(%s)失败: %v", u.Name, u.Phone, err)
+			} else {
+				smsSent++
 			}
-			sentChannels = append(sentChannels, s.Channel)
+		}
+		if enabled["dingtalk_ding"] && u.UnionId != "" {
+			m := userMsg
+			m.Unionids = []string{u.UnionId}
+			if err := dingSender.Send(ctx, m); err != nil {
+				logx.Errorf("[UpdateCheck] dingtalk_ding → %s(%s)失败: %v", u.Name, u.UnionId, err)
+			} else {
+				dingSent++
+			}
 		}
 	}
+
+	var sentChannels []string
+	if emailSent > 0 {
+		sentChannels = append(sentChannels, "email")
+	}
+	if smsSent > 0 {
+		sentChannels = append(sentChannels, "sms")
+	}
+	if dingSent > 0 {
+		sentChannels = append(sentChannels, "dingtalk_ding")
+	}
+
+	if enabled["dingtalk_robot"] {
+		if e.sendDingTalkRobot(ctx, dateStr, orphanHotels, userTargets) {
+			sentChannels = append(sentChannels, "dingtalk_robot")
+		}
+	}
+
+	logx.Infof("[UpdateCheck] %s 通知分发: email=%d sms=%d ding=%d (共 %d 位负责人, %d 家孤儿)",
+		dateStr, emailSent, smsSent, dingSent, len(userTargets), len(orphanHotels))
 
 	if len(sentChannels) > 0 {
 		now := time.Now()
@@ -186,46 +198,26 @@ func (e *Engine) Notify(ctx context.Context, dateStr string, missing []HotelStat
 	return nil
 }
 
-// sendEmailPerUser 按用户分发邮件,每人 To 只他自己,正文只列他负责的缺录酒店
-// 返回 true 表示至少发出 1 封
-func (e *Engine) sendEmailPerUser(ctx context.Context, dateStr string, userTargets []userTarget) bool {
-	if len(userTargets) == 0 {
-		return false
+// buildUserMessage 拼这位用户专属的消息体,只列他负责的酒店
+func buildUserMessage(dateStr string, u userTarget) notify.Message {
+	var bullets []string
+	for _, h := range u.Hotels {
+		bullets = append(bullets, fmt.Sprintf("• %s", h.HotelName))
 	}
-	sender := &notify.EmailSender{DB: e.DB, Cfg: e.Cfg}
-	sent := 0
-	for _, u := range userTargets {
-		if u.Email == "" {
-			continue
-		}
-		var bullets []string
-		for _, h := range u.Hotels {
-			bullets = append(bullets, fmt.Sprintf("• %s", h.HotelName))
-		}
-		userMd := fmt.Sprintf("**⚠️ 你负责的酒店今日尚未录入数据**\n\n业务日期：**%s**\n\n以下 **%d** 家(你负责)今日尚未录入：\n\n%s\n\n请尽快登录钉钉 AI 表完成录入。",
-			dateStr, len(u.Hotels), strings.Join(bullets, "\n"))
-		userText := fmt.Sprintf("【会议室未录提醒】%s 你负责的 %d 家未录:%s",
-			dateStr, len(u.Hotels), strings.Join(nameList(u.Hotels), "、"))
-
-		userMsg := notify.Message{
-			Title:    "会议室数据未录入提醒",
-			Text:     userText,
-			Markdown: userMd,
-			Emails:   []string{u.Email},
-		}
-		if err := sender.Send(ctx, userMsg); err != nil {
-			logx.Errorf("[UpdateCheck] 邮件 → %s(%s)发送失败: %v", u.Name, u.Email, err)
-			continue
-		}
-		sent++
+	md := fmt.Sprintf("**⚠️ 你负责的酒店今日尚未录入数据**\n\n业务日期：**%s**\n\n以下 **%d** 家(你负责)今日尚未录入:\n\n%s\n\n请尽快登录钉钉 AI 表完成录入。",
+		dateStr, len(u.Hotels), strings.Join(bullets, "\n"))
+	text := fmt.Sprintf("【会议室未录提醒】%s 你负责的 %d 家未录:%s",
+		dateStr, len(u.Hotels), strings.Join(nameList(u.Hotels), "、"))
+	return notify.Message{
+		Title:    "会议室数据未录入提醒",
+		Text:     text,
+		Markdown: md,
 	}
-	logx.Infof("[UpdateCheck] 邮件按用户分发,成功 %d/%d", sent, len(userTargets))
-	return sent > 0
 }
 
 // sendDingTalkRobot 钉钉群机器人:
 // - 优先发"无负责人酒店"清单(admin 关注)
-// - 如果没有孤儿,仅当有 userTargets 时发一条简要摘要(已邮件通知 N 位)
+// - 没有孤儿但有 userTargets 时发简要摘要
 func (e *Engine) sendDingTalkRobot(ctx context.Context, dateStr string, orphan []HotelStatus, userTargets []userTarget) bool {
 	sender := &notify.DingTalkRobotSender{DB: e.DB}
 	var msg notify.Message
@@ -245,9 +237,9 @@ func (e *Engine) sendDingTalkRobot(ctx context.Context, dateStr string, orphan [
 			Markdown: md,
 		}
 	} else if len(userTargets) > 0 {
-		text := fmt.Sprintf("【会议室未录已通知】%s 已分别邮件通知 %d 位负责人,无孤儿酒店",
+		text := fmt.Sprintf("【会议室未录已通知】%s 已分别通知 %d 位负责人,无孤儿酒店",
 			dateStr, len(userTargets))
-		md := fmt.Sprintf("**ℹ️ 会议室未录提醒(已通知负责人)**\n\n业务日期：**%s**\n\n已分别邮件通知 **%d** 位负责人,无孤儿酒店。",
+		md := fmt.Sprintf("**ℹ️ 会议室未录提醒(已通知负责人)**\n\n业务日期：**%s**\n\n已分别按 user 分发到 **%d** 位负责人(邮件/短信/钉钉工作通知各按启用情况),无孤儿酒店。",
 			dateStr, len(userTargets))
 		msg = notify.Message{
 			Title:    "会议室未录已通知",
@@ -265,7 +257,8 @@ func (e *Engine) sendDingTalkRobot(ctx context.Context, dateStr string, orphan [
 	return true
 }
 
-// groupByUser 按 user 分组缺录酒店,并算出"无负责人"酒店(missing 中没被任何 active user 通过 user_hotel_perms 覆盖的)
+// groupByUser 按 user 分组缺录酒店,并算出"无负责人"酒店
+// 同时返回 user 的 phone + unionId,供 sms / dingtalk_ding 1-on-1 投递使用
 func (e *Engine) groupByUser(missing []HotelStatus) ([]userTarget, []HotelStatus) {
 	if len(missing) == 0 {
 		return nil, nil
@@ -281,11 +274,13 @@ func (e *Engine) groupByUser(missing []HotelStatus) ([]userTarget, []HotelStatus
 		UserId  int64
 		Name    string
 		Email   string
+		Phone   string
+		UnionId string
 		HotelId int64
 	}
 	var rows []joinRow
 	e.DB.Raw(`
-		SELECT u.id AS user_id, u.name, u.email, p.hotel_id
+		SELECT u.id AS user_id, u.name, u.email, u.phone, u.dingtalk_union_id AS union_id, p.hotel_id
 		FROM user_hotel_perms p
 		JOIN users u ON u.id = p.user_id
 		WHERE p.hotel_id IN ? AND u.status = 'active'
@@ -298,7 +293,13 @@ func (e *Engine) groupByUser(missing []HotelStatus) ([]userTarget, []HotelStatus
 		coveredHotels[r.HotelId] = true
 		u, ok := userMap[r.UserId]
 		if !ok {
-			u = &userTarget{UserId: r.UserId, Name: r.Name, Email: r.Email}
+			u = &userTarget{
+				UserId:  r.UserId,
+				Name:    r.Name,
+				Email:   r.Email,
+				Phone:   r.Phone,
+				UnionId: r.UnionId,
+			}
 			userMap[r.UserId] = u
 		}
 		if hs, found := missingMap[r.HotelId]; found {
@@ -306,7 +307,6 @@ func (e *Engine) groupByUser(missing []HotelStatus) ([]userTarget, []HotelStatus
 		}
 	}
 
-	// 去掉没缺录酒店的 user(防御性 — SQL WHERE 已过滤,这里再保险一次)
 	userTargets := make([]userTarget, 0, len(userMap))
 	for _, u := range userMap {
 		if len(u.Hotels) > 0 {
@@ -314,7 +314,6 @@ func (e *Engine) groupByUser(missing []HotelStatus) ([]userTarget, []HotelStatus
 		}
 	}
 
-	// 孤儿酒店
 	var orphan []HotelStatus
 	for _, m := range missing {
 		if !coveredHotels[m.HotelId] {
@@ -322,56 +321,6 @@ func (e *Engine) groupByUser(missing []HotelStatus) ([]userTarget, []HotelStatus
 		}
 	}
 	return userTargets, orphan
-}
-
-func (e *Engine) buildSender(ch notify.Channel) notify.Sender {
-	switch ch {
-	case notify.ChannelDingTalkRobot:
-		return &notify.DingTalkRobotSender{DB: e.DB}
-	case notify.ChannelSMS:
-		return &notify.AliyunSMSSender{DB: e.DB}
-	case notify.ChannelDingTalkDing:
-		return &notify.DingTalkDingSender{DB: e.DB, Cfg: e.Cfg, Client: e.Client}
-	case notify.ChannelEmail:
-		return &notify.EmailSender{DB: e.DB, Cfg: e.Cfg}
-	}
-	return nil
-}
-
-func (e *Engine) collectPhones(missing []HotelStatus) []string {
-	if len(missing) == 0 {
-		return nil
-	}
-	ids := make([]int64, 0, len(missing))
-	for _, m := range missing {
-		ids = append(ids, m.HotelId)
-	}
-	var phones []string
-	e.DB.Raw(`
-		SELECT DISTINCT u.phone
-		FROM users u
-		JOIN user_hotel_perms p ON p.user_id = u.id
-		WHERE p.hotel_id IN ? AND u.phone <> '' AND u.status = 'active'
-	`, ids).Scan(&phones)
-	return phones
-}
-
-func (e *Engine) collectUnionIds(missing []HotelStatus) []string {
-	if len(missing) == 0 {
-		return nil
-	}
-	ids := make([]int64, 0, len(missing))
-	for _, m := range missing {
-		ids = append(ids, m.HotelId)
-	}
-	var unions []string
-	e.DB.Raw(`
-		SELECT DISTINCT u.dingtalk_union_id
-		FROM users u
-		JOIN user_hotel_perms p ON p.user_id = u.id
-		WHERE p.hotel_id IN ? AND u.dingtalk_union_id <> '' AND u.status = 'active'
-	`, ids).Scan(&unions)
-	return unions
 }
 
 func nameList(hs []HotelStatus) []string {
