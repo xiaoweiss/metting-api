@@ -39,7 +39,11 @@ func main() {
 				logx.Errorf("[DataSync] 启动调度器失败: %v", err)
 			}
 		} else if c.Sync.AutoStart {
-			if err := ctx.SyncScheduler.Start(c.Sync.CronExpr); err != nil {
+			cronExpr := c.Sync.CronExpr
+			if cronExpr == "" {
+				cronExpr = "0 6 * * *" // 默认每天 6 点
+			}
+			if err := ctx.SyncScheduler.Start(cronExpr); err != nil {
 				logx.Errorf("[DataSync] 启动调度器失败: %v", err)
 			}
 		}
@@ -59,8 +63,12 @@ func main() {
 			if err := ctx.CheckScheduler.Start(ucSchedule.CronExpr); err != nil {
 				logx.Errorf("[UpdateCheck] 启动调度器失败: %v", err)
 			}
-		} else if c.UpdateCheck.AutoStart && c.UpdateCheck.CronExpr != "" {
-			if err := ctx.CheckScheduler.Start(c.UpdateCheck.CronExpr); err != nil {
+		} else if c.UpdateCheck.AutoStart {
+			cronExpr := c.UpdateCheck.CronExpr
+			if cronExpr == "" {
+				cronExpr = "0 20 * * *" // 默认每晚 20:00
+			}
+			if err := ctx.CheckScheduler.Start(cronExpr); err != nil {
 				logx.Errorf("[UpdateCheck] 启动调度器失败: %v", err)
 			}
 		}

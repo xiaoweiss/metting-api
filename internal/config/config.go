@@ -45,12 +45,14 @@ type Config struct {
 	}
 
 	Sync struct {
-		CronExpr  string `json:",default=0 6 * * *"`
+		// 默认值在 meeting.go 启动时 fallback(tag 里写带空格的 cron 会触发 govet 警告)
+		CronExpr  string `json:",optional"`
 		AutoStart bool   `json:",default=true"`
 	}
 
 	UpdateCheck struct {
-		CronExpr  string `json:",default=0 20 * * *"` // 每晚 20:00 检测
+		// 默认 0 20 * * *(每晚 20:00)— 在 meeting.go fallback
+		CronExpr  string `json:",optional"`
 		AutoStart bool   `json:",default=true"`
 	}
 

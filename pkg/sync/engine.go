@@ -92,7 +92,7 @@ func (e *Engine) RunFullSync(ctx context.Context) error {
 		msg := fmt.Sprintf("同步完成（耗时 %s），有错误: %v", elapsed, errs)
 		logx.Errorf("[DataSync] %s", msg)
 		e.logSync("full_sync", "failed", 0, msg)
-		return fmt.Errorf(msg)
+		return fmt.Errorf("%s", msg)
 	}
 
 	msg := fmt.Sprintf("全量同步完成，耗时 %s", elapsed)
