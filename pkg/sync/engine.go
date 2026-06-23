@@ -17,11 +17,13 @@ import (
 )
 
 type Engine struct {
-	mu    sync.Mutex
-	db    *gorm.DB
-	rdb   *redis.Client
-	sheet *dingtalk.SheetClient
-	cfg   config.Config
+	mu                  sync.Mutex
+	db                  *gorm.DB
+	rdb                 *redis.Client
+	sheet               *dingtalk.SheetClient
+	cfg                 config.Config
+	consecutiveFailures int       // 连续失败次数(含 hotels 0 家早 return)
+	nextRunAfter        time.Time // 下次可跑的时间;zero 表示无 backoff;并发安全由 mu 保护
 }
 
 func NewEngine(db *gorm.DB, rdb *redis.Client, sheet *dingtalk.SheetClient, cfg config.Config) *Engine {
@@ -29,11 +31,17 @@ func NewEngine(db *gorm.DB, rdb *redis.Client, sheet *dingtalk.SheetClient, cfg 
 }
 
 // RunFullSync 执行全量同步，按依赖顺序
+// 失败时指数退避(1m / 2m / 4m / 8m / 16m / 30m 上限),避免持续 spam log + 浪费资源
 func (e *Engine) RunFullSync(ctx context.Context) error {
 	if !e.mu.TryLock() {
 		return fmt.Errorf("同步正在进行中")
 	}
 	defer e.mu.Unlock()
+
+	// backoff 中,silent skip(不打 error log,几乎 0 开销)
+	if !e.nextRunAfter.IsZero() && time.Now().Before(e.nextRunAfter) {
+		return nil
+	}
 
 	start := time.Now()
 	logx.Infof("[DataSync] 开始全量同步")
@@ -53,6 +61,7 @@ func (e *Engine) RunFullSync(ctx context.Context) error {
 		msg := "hotels 同步 0 家(钉钉源数据异常或字段名变了),本轮跳过后续 sync"
 		logx.Errorf("[DataSync] %s", msg)
 		e.logSync("full_sync", "failed", 0, msg)
+		e.bumpBackoffLocked(true)
 		return fmt.Errorf("%s", msg)
 	}
 
@@ -101,13 +110,43 @@ func (e *Engine) RunFullSync(ctx context.Context) error {
 		msg := fmt.Sprintf("同步完成（耗时 %s），有错误: %v", elapsed, errs)
 		logx.Errorf("[DataSync] %s", msg)
 		e.logSync("full_sync", "failed", 0, msg)
+		e.bumpBackoffLocked(true)
 		return fmt.Errorf("%s", msg)
 	}
 
 	msg := fmt.Sprintf("全量同步完成，耗时 %s", elapsed)
 	logx.Infof("[DataSync] %s", msg)
 	e.logSync("full_sync", "success", 0, msg)
+	e.bumpBackoffLocked(false)
 	return nil
+}
+
+// bumpBackoffLocked 根据本次结果更新 backoff 状态;必须在 mu 持有时调用。
+// 失败: 指数退避 1m / 2m / 4m / 8m / 16m / 30m,上限 30 分钟。
+// 成功: 立刻清零,下次 cron 正常跑。
+func (e *Engine) bumpBackoffLocked(failed bool) {
+	if !failed {
+		if e.consecutiveFailures > 0 {
+			logx.Infof("[DataSync] 同步恢复,清 backoff(之前连续失败 %d 次)", e.consecutiveFailures)
+		}
+		e.consecutiveFailures = 0
+		e.nextRunAfter = time.Time{}
+		return
+	}
+
+	e.consecutiveFailures++
+	// 指数退避: 1<<0=1, 1<<1=2, ..., 1<<5=32 → 上限取 30 分钟
+	shift := uint(e.consecutiveFailures - 1)
+	if shift > 5 {
+		shift = 5
+	}
+	delay := time.Minute << shift
+	if delay > 30*time.Minute {
+		delay = 30 * time.Minute
+	}
+	e.nextRunAfter = time.Now().Add(delay)
+	logx.Errorf("[DataSync] 连续失败 %d 次,backoff %v,下次最早 %s",
+		e.consecutiveFailures, delay, e.nextRunAfter.Format("15:04:05"))
 }
 
 func (e *Engine) logSync(source, status string, count int, message string) {
