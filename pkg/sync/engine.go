@@ -47,6 +47,15 @@ func (e *Engine) RunFullSync(ctx context.Context) error {
 		e.logSync("hotels", "failed", 0, err.Error())
 	}
 
+	// 早 return: hotels 0 家时,后续 6 个 sync 都依赖 hotel 数据,跑下去都是空操作,
+	// 还会刷大量 log + 写 sync_logs 表 + 浪费 CPU。直接跳过本轮等下次,等钉钉源恢复
+	if len(recordIdToHotelId) == 0 {
+		msg := "hotels 同步 0 家(钉钉源数据异常或字段名变了),本轮跳过后续 sync"
+		logx.Errorf("[DataSync] %s", msg)
+		e.logSync("full_sync", "failed", 0, msg)
+		return fmt.Errorf("%s", msg)
+	}
+
 	// ② 会议室 → 用映射解析 linkedRecordIds
 	if err := e.syncVenues(ctx, recordIdToHotelId); err != nil {
 		errs = append(errs, fmt.Sprintf("venues: %v", err))
