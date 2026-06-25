@@ -3,11 +3,30 @@ package sync
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"meeting/internal/model"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
+
+// normalizeStarRating 统一星级写法,避免同档级被算作不同组
+// 钉钉里常见脏数据:"5 stars" / "5-Star" / "5星" / "5 Star" → 一律归 "X-Star"
+// 不识别的值原样返回(向后兼容)
+var starRatingDigitRe = regexp.MustCompile(`(\d+)`)
+
+func normalizeStarRating(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	m := starRatingDigitRe.FindString(s)
+	if m == "" {
+		return s // 无数字 → 不动
+	}
+	return m + "-Star"
+}
 
 // syncHotelFacilities 同步酒店设施表（hAi1ytw）
 // 用途：用"酒店名 + 会议室名"匹配，丰富 hotels 和 venues 的元数据
@@ -42,7 +61,7 @@ func (e *Engine) syncHotelFacilities(ctx context.Context) error {
 	matchedHotel, matchedVenue, skipped := 0, 0, 0
 
 	for _, row := range rows {
-		hotelName := textField(row, "酒店名称 Hotel Name")
+		hotelName := textField(row, "酒店中文名Hotel Name")
 		if hotelName == "" {
 			skipped++
 			continue
@@ -50,7 +69,7 @@ func (e *Engine) syncHotelFacilities(ctx context.Context) error {
 
 		hotelId, hotelExists := hotelNameToId[hotelName]
 
-		// 酒店级元数据（每个 hotel 的多行会重复写，最后一行生效 —— 值都一样没问题）
+		// 酒店级元数据(2026-06 钉钉重构:字段名统一去空格 + 去全角括号;星级字段被业务方去掉)
 		if hotelExists {
 			hu := hotelUpdates[hotelId]
 			if hu == nil {
@@ -58,37 +77,38 @@ func (e *Engine) syncHotelFacilities(ctx context.Context) error {
 				hotelUpdates[hotelId] = hu
 				matchedHotel++
 			}
-			if s := singleSelectName(row, "酒店星级等级 Hotel Star Rating"); s != "" {
-				hu["star_rating"] = s
-			}
-			if s := singleSelectName(row, "品牌"); s != "" {
+			if s := singleSelectName(row, "品牌中文名Brand"); s != "" {
 				hu["brand"] = s
 			}
-			if s := singleSelectName(row, "集团名称"); s != "" {
+			if s := singleSelectName(row, "集团名称Group"); s != "" {
 				hu["hotel_group"] = s
 			}
-			if s := singleSelectName(row, "酒店地址-区域（Hotel_Address_Region）"); s != "" {
+			if s := singleSelectName(row, "酒店地址-区域Hotel_Address_Region"); s != "" {
 				hu["region"] = s
 			}
-			if s := singleSelectName(row, "酒店地址-省份（Hotel_Address_Province）"); s != "" {
+			if s := singleSelectName(row, "酒店地址-省份Hotel_Address_Province"); s != "" {
 				hu["province"] = s
 			}
-			if s := singleSelectName(row, "酒店地址-城市群（Hotel_Address_Metropolitan_Area）"); s != "" {
+			if s := singleSelectName(row, "酒店地址-城市群Hotel_Address_Metropolitan_Area"); s != "" {
 				hu["metropolitan_area"] = s
 			}
-			if s := singleSelectName(row, "城市群核心城市（Metropolitan_Area_Core_City）"); s != "" {
+			if s := singleSelectName(row, "城市群核心城市Metropolitan_Area_Core_City"); s != "" {
 				hu["core_city"] = s
 			}
-			if s := singleSelectName(row, "酒店类型-经典 Hotel Type - Classic"); s != "" {
+			if s := singleSelectName(row, "酒店类型-经典Hotel Type - Classic"); s != "" {
 				hu["hotel_type"] = s
 			}
-			if s := singleSelectName(row, "所属商圈（Hotel_Business_District）"); s != "" {
+			// 业务方把「定位级别」重命名为「酒店档次Category」
+			if s := singleSelectName(row, "酒店档次Category"); s != "" {
+				hu["level"] = s
+			}
+			if s := singleSelectName(row, "所属商圈Hotel_Business_District"); s != "" {
 				hu["business_district"] = s
 			}
 		}
 
 		// 会议室级元数据
-		venueName := textField(row, "会议室名称 Meeting Room")
+		venueName := textField(row, "会议室名称Meeting Room")
 		if venueName != "" && hotelExists {
 			venueId, ok := venueKeyToId[fmt.Sprintf("%d:%s", hotelId, venueName)]
 			if ok {

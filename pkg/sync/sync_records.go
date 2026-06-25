@@ -53,21 +53,17 @@ func (e *Engine) syncMeetingRecords(ctx context.Context) error {
 	var parsed []recordRow
 	skipped := 0
 	for _, row := range rows {
-		// 兼容钉钉表格列名变化:酒店名 / 会议室名 是 linked field,优先 name 部分;
-		// 日期列钉钉历史上叫过「会议室出租日期」,现在叫「出租日期」,两个都尝试
-		hotelName := linkedRecordName(row, "酒店名称 Hotel Name")
+		// 钉钉 2026-06 重构:字段名统一去空格 + 去全角括号
+		hotelName := linkedRecordName(row, "酒店名称Hotel Name")
 		if hotelName == "" {
-			hotelName = textField(row, "酒店名称 Hotel Name")
+			hotelName = textField(row, "酒店名称Hotel Name")
 		}
-		venueName := linkedRecordName(row, "会议室名称 Room Name")
+		venueName := linkedRecordName(row, "会议室名称Room Name")
 		if venueName == "" {
-			venueName = textField(row, "会议室名称 Room Name")
+			venueName = textField(row, "会议室名称Room Name")
 		}
-		period := mapPeriod(singleSelectName(row, "场次 Session"))
-		recordDate := dateField(row, "出租日期")
-		if recordDate == nil {
-			recordDate = dateField(row, "会议室出租日期")
-		}
+		period := mapPeriod(singleSelectName(row, "场次Session"))
+		recordDate := dateField(row, "会议室出租日期Rental Date")
 
 		if hotelName == "" || venueName == "" || period == "" || recordDate == nil {
 			logx.Infof("[syncRecords] 行字段不全, skip: hotel=%q venue=%q period=%q date=%v", hotelName, venueName, period, recordDate)
@@ -85,7 +81,7 @@ func (e *Engine) syncMeetingRecords(ctx context.Context) error {
 		// 优先按钉钉行 record id 匹配（同名不同 type 也能区分）
 		var venueId int64
 		var found bool
-		if rid := linkedRecordId(row, "会议室名称 Room Name"); rid != "" {
+		if rid := linkedRecordId(row, "会议室名称Room Name"); rid != "" {
 			venueId, found = venueByRecordId[rid]
 		}
 		if !found {
@@ -102,9 +98,9 @@ func (e *Engine) syncMeetingRecords(ctx context.Context) error {
 			venueId:      venueId,
 			recordDate:   recordDate,
 			period:       period,
-			isBooked:     checkboxField(row, "请在已出租的场次打√"),
-			activityType: singleSelectName(row, "活动类型 Event Type"),
-			entryDate:    dateField(row, "录入日期 Date"),
+			isBooked:     checkboxField(row, "请在已出租的场次打√Check Status"),
+			activityType: singleSelectName(row, "活动类型Event Type"),
+			entryDate:    dateField(row, "录入日期Date"),
 		})
 	}
 

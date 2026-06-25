@@ -28,8 +28,8 @@ func (e *Engine) syncUserPerms(ctx context.Context) error {
 
 	permCount := 0
 	for _, row := range rows {
-		hotelName := textField(row, "酒店名称 Hotel Name")
-		users := userFields(row, "酒店对接人员")
+		hotelName := textField(row, "酒店中文名Hotel Name")
+		users := userFields(row, "酒店关联人")
 
 		if hotelName == "" || len(users) == 0 {
 			continue

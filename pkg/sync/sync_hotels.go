@@ -3,7 +3,6 @@ package sync
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"meeting/internal/model"
 
@@ -29,7 +28,7 @@ func (e *Engine) syncHotels(ctx context.Context) (map[string]int64, error) {
 	// 第一遍：upsert 商圈 + 酒店
 	for _, rec := range records {
 		row := rec.Fields
-		hotelName := textField(row, "酒店名称 Hotel Name")
+		hotelName := textField(row, "酒店中文名Hotel Name")
 		if hotelName == "" {
 			skippedNoName++
 			if len(skippedSamples) < 3 {
@@ -39,7 +38,7 @@ func (e *Engine) syncHotels(ctx context.Context) (map[string]int64, error) {
 		}
 
 		// upsert 商圈
-		marketAreaName := singleSelectName(row, "所在商圈")
+		marketAreaName := singleSelectName(row, "所在商圈Business District")
 		var marketAreaId int64
 		if marketAreaName != "" {
 			var ma model.MarketArea
@@ -62,29 +61,9 @@ func (e *Engine) syncHotels(ctx context.Context) (map[string]int64, error) {
 			e.db.Model(&hotel).Update("market_area_id", marketAreaId)
 		}
 
-		// 同步定位级别(超高端/高端/中高端/...);钉钉表头可能是「定位级别 Level」「定位级别Level」「定位级别」等多种写法
-		// 兜底:遍历 row 找含「定位级别」或精确「Level」的 key,任一拿到非空就用
-		for _, candidate := range []string{"定位级别 Level", "定位级别Level", "定位级别", "Level"} {
-			if level := singleSelectName(row, candidate); level != "" {
-				e.db.Model(&hotel).Update("level", level)
-				break
-			}
-		}
-		// 还没拿到 → 模糊匹配 row keys,临时日志,定位完字段名后可移除
-		var picked string
-		var matchedKey string
-		for k := range row {
-			if (strings.Contains(k, "定位级别") || strings.Contains(k, "Level")) && !strings.Contains(k, "星级") {
-				if v := singleSelectName(row, k); v != "" {
-					picked = v
-					matchedKey = k
-					break
-				}
-			}
-		}
-		if picked != "" {
-			e.db.Model(&hotel).Update("level", picked)
-			logx.Infof("[syncHotels] hotel=%s 定位级别 via fuzzy key '%s' = %s", hotelName, matchedKey, picked)
+		// 同步酒店档次(2026-06 钉钉把「定位级别」改名为「酒店档次Category」)
+		if level := singleSelectName(row, "酒店档次（中文）Category"); level != "" {
+			e.db.Model(&hotel).Update("level", level)
 		}
 
 		recordIdToHotelId[rec.RecordId] = hotel.Id
@@ -101,7 +80,7 @@ func (e *Engine) syncHotels(ctx context.Context) (map[string]int64, error) {
 			continue
 		}
 
-		competitorNames := multipleSelectNames(row, "选择竞对酒店")
+		competitorNames := multipleSelectNames(row, "选择竞对酒店Select Competitor Hotels")
 		if len(competitorNames) == 0 {
 			continue
 		}
@@ -110,7 +89,7 @@ func (e *Engine) syncHotels(ctx context.Context) (map[string]int64, error) {
 		var group model.CompetitorGroup
 		e.db.Where("base_hotel_id = ?", hotelId).Attrs(model.CompetitorGroup{
 			BaseHotelId: hotelId,
-			Name:        textField(row, "酒店名称 Hotel Name") + " 竞对组",
+			Name:        textField(row, "酒店中文名Hotel Name") + " 竞对组",
 		}).FirstOrCreate(&group)
 
 		// 清空旧关系，重建

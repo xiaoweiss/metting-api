@@ -21,7 +21,7 @@ func (e *Engine) syncVenues(ctx context.Context, recordIdToHotelId map[string]in
 	count := 0
 	for _, rec := range rows {
 		row := rec.Fields
-		venueName := textField(row, "会议室名称 Meeting Room")
+		venueName := textField(row, "会议室名称Meeting Room")
 		if venueName == "" {
 			continue
 		}
@@ -30,10 +30,10 @@ func (e *Engine) syncVenues(ctx context.Context, recordIdToHotelId map[string]in
 			continue
 		}
 
-		venueType := singleSelectName(row, "会议室类型 （Meeting Room Category)")
+		venueType := singleSelectName(row, "会议室类型Meeting Room Category")
 
 		// 解析可出租时段
-		periodNames := multipleSelectNames(row, "可出租时间段")
+		periodNames := multipleSelectNames(row, "可出租时间段Rentable Time Slots")
 		var periods []string
 		for _, p := range periodNames {
 			periods = append(periods, mapPeriod(p))
@@ -45,7 +45,7 @@ func (e *Engine) syncVenues(ctx context.Context, recordIdToHotelId map[string]in
 		// 用 singleSelectName 拿名字,按 name 匹配 hotels.name 找 hotel_id
 		var hotelId int64
 		var exists bool
-		hotelOptionName := singleSelectName(row, "选择酒店")
+		hotelOptionName := singleSelectName(row, "选择酒店Select Hotel")
 		if hotelOptionName != "" {
 			var h model.Hotel
 			if err := e.db.Where("name = ?", hotelOptionName).First(&h).Error; err == nil && h.Id > 0 {

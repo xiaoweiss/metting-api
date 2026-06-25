@@ -43,8 +43,8 @@ func (e *Engine) syncHotelEvents(ctx context.Context) error {
 	for _, rec := range records {
 		row := rec.Fields
 
-		hotelName := textField(row, "酒店名称")
-		eventDate := dateField(row, "活动日期（Event_Date）")
+		hotelName := textField(row, "酒店名称Hotel_Name")
+		eventDate := dateField(row, "活动日期Event_Date")
 		if hotelName == "" || eventDate == nil {
 			skipped++
 			continue
@@ -57,19 +57,19 @@ func (e *Engine) syncHotelEvents(ctx context.Context) error {
 			continue
 		}
 
-		venueName := textField(row, "会议室名称（Room_Name）")
+		venueName := textField(row, "会议室名称Room_Name")
 		var venueId int64
 		if venueName != "" {
 			venueId = venueKeyToId[fmt.Sprintf("%d:%s", hotelId, venueName)]
 		}
 
-		eventName := textField(row, "活动名称（Event_Name）")
-		eventType := singleSelectName(row, "活动类型（Event_Type）")
-		bookingStatus := singleSelectName(row, "预订状态（Booking_Status）")
-		targetDate := dateField(row, "预定日期（Target_Date）")
-		endDate := dateField(row, "结束日期（End_Date）")
+		eventName := textField(row, "活动名称Event_Name")
+		eventType := singleSelectName(row, "活动类型Event_Type")
+		bookingStatus := singleSelectName(row, "预订状态Booking_Status")
+		targetDate := dateField(row, "预定日期Target_Date")
+		endDate := dateField(row, "结束日期End_Date")
 
-		periodNames := multipleSelectNames(row, "时间段")
+		periodNames := multipleSelectNames(row, "时间段Time_Period")
 		var periods []string
 		for _, p := range periodNames {
 			periods = append(periods, mapPeriod(p))
